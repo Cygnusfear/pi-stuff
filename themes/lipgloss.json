@@ -1,0 +1,94 @@
+{
+  "$schema": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "name": "lipgloss",
+  "vars": {
+    "normal": "#EEEEEE",
+    "subtle": "#383838",
+    "subtle2": "#696969",
+    "muted": "#C1C6B2",
+    "thinking": "#ABA989",
+    "bright": "#FAFAFA",
+
+    "highlight": "#7D56F4",
+    "highlightBright": "#874BFD",
+    "special": "#73F59F",
+
+    "pink": "#F25D94",
+    "hotPink": "#FF5F87",
+    "yellow": "#EDFF82",
+    "teal": "#14F9D5",
+    "deepPurple": "#6124DF",
+    "violet": "#A550DF",
+
+    "cream": "#FFF7DB",
+    "olive": "#888B7E",
+
+    "bg": "#1A1A1A",
+    "panel": "#313340"
+  },
+  "colors": {
+    "accent": "highlight",
+    "border": "highlight",
+    "borderAccent": "highlightBright",
+    "borderMuted": "subtle",
+    "success": "special",
+    "error": "hotPink",
+    "warning": "yellow",
+    "muted": "muted",
+    "dim": "subtle2",
+    "text": "normal",
+    "thinkingText": "thinking",
+
+    "selectedBg": "subtle",
+    "userMessageBg": "deepPurple",
+    "userMessageText": "normal",
+    "customMessageBg": "panel",
+    "customMessageText": "normal",
+    "customMessageLabel": "highlight",
+
+    "toolPendingBg": "panel",
+    "toolSuccessBg": "panel",
+    "toolErrorBg": "panel",
+    "toolTitle": "highlight",
+    "toolOutput": "bright",
+
+    "mdHeading": "highlight",
+    "mdLink": "special",
+    "mdLinkUrl": "muted",
+    "mdCode": "teal",
+    "mdCodeBlock": "normal",
+    "mdCodeBlockBorder": "subtle",
+    "mdQuote": "muted",
+    "mdQuoteBorder": "subtle",
+    "mdHr": "subtle",
+    "mdListBullet": "pink",
+
+    "toolDiffAdded": "special",
+    "toolDiffRemoved": "hotPink",
+    "toolDiffContext": "muted",
+
+    "syntaxComment": "subtle2",
+    "syntaxKeyword": "highlight",
+    "syntaxFunction": "teal",
+    "syntaxVariable": "yellow",
+    "syntaxString": "special",
+    "syntaxNumber": "pink",
+    "syntaxType": "highlightBright",
+    "syntaxOperator": "highlight",
+    "syntaxPunctuation": "muted",
+
+    "thinkingOff": "subtle",
+    "thinkingMinimal": "highlight",
+    "thinkingLow": "highlightBright",
+    "thinkingMedium": "teal",
+    "thinkingHigh": "pink",
+    "thinkingXhigh": "hotPink",
+
+    "bashMode": "yellow"
+  },
+  "export": {
+    "pageBg": "#0F0F10",
+    "cardBg": "#161618",
+    "infoBg": "#2B2B2A"
+  }
+}
