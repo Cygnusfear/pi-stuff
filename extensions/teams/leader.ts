@@ -203,6 +203,12 @@ export class TeamLeader {
 			},
 			{ deliverAs: "followUp" },
 		);
+
+		// Reactivate the agent when a worker reaches a terminal state.
+		// This lets the leader continue orchestration immediately (e.g. start next wave).
+		if (event.type === "completed" || event.type === "failed") {
+			this.pi.sendUserMessage(msg, { deliverAs: "followUp" });
+		}
 	}
 }
 
