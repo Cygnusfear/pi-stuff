@@ -11,6 +11,9 @@
     ],
     "prompts": [
       "./prompts"
+    ],
+    "skills": [
+      "./skills"
     ]
   },
   "dependencies": {
