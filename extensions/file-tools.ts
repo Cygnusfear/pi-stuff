@@ -50,6 +50,17 @@ Notes:
 - The pattern is matched relative to the search path
 - Results are limited to 100 files`;
 
+const RG_DESCRIPTION = `Run ripgrep (rg) commands.
+
+Common gotcha: rg patterns are regex by default.
+- If pattern contains parentheses, brackets, ?, +, etc. and you mean literal text, use -F.
+- If you need regex groups, make sure parentheses/brackets are balanced.
+
+Examples:
+- Literal search: rg -n -F "sendUserMessage|sendMessage(" src/
+- Regex search:   rg -n "sendUserMessage|sendMessage\\(" src/
+- Scoped regex:   rg -n "(foo|bar)" extensions/`;
+
 const CommandToolParams = Type.Object({
 	args: Type.Optional(Type.String({ description: "Arguments to pass to the command." })),
 	cwd: Type.Optional(Type.String({ description: "Working directory (overrides repo detection)." })),
@@ -918,7 +929,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "rg",
 		label: "rg",
-		description: "Run ripgrep (rg) commands.",
+		description: RG_DESCRIPTION,
 		parameters: CommandToolParams,
 		renderResult(result, options, theme) {
 			return renderToolResult(result, !!options.expanded, theme);
