@@ -2,13 +2,15 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 import type { WorkerHandle, SpawnConfig, PollEvent } from "./types.js";
 import { POLL_INTERVAL_MS } from "./types.js";
-import { spawnWorker, isProcessAlive, killWorker } from "./spawner.js";
+import { spawnWorker, isProcessAlive } from "./spawner.js";
 import { computePollEvents, type PollInput } from "./polling.js";
 import { parseTicketShow } from "./tickets.js";
-import { createWorktree, worktreeBranchName } from "./worktree.js";
+import { createWorktree } from "./worktree.js";
 import { cleanupWorker } from "./cleanup.js";
+import { nextWorkerStatus } from "./state.js";
 import type { ChildProcess } from "node:child_process";
 import path from "node:path";
+import { createTeamsWidget } from "./widget.js";
 
 export class TeamLeader {
 	private workers = new Map<string, WorkerHandle>();
@@ -16,6 +18,7 @@ export class TeamLeader {
 	private pollTimer: ReturnType<typeof setInterval> | null = null;
 	private pi: ExtensionAPI;
 	private ctx: ExtensionContext | null = null;
+	private widgetFactory = createTeamsWidget(() => this.getWorkers());
 
 	constructor(pi: ExtensionAPI) {
 		this.pi = pi;
@@ -23,6 +26,7 @@ export class TeamLeader {
 
 	setContext(ctx: ExtensionContext) {
 		this.ctx = ctx;
+		this.renderWidget();
 	}
 
 	startPolling() {
@@ -62,6 +66,7 @@ export class TeamLeader {
 		const { process: child, handle } = spawnWorker(config);
 		this.workers.set(workerName, handle);
 		this.childProcesses.set(workerName, child);
+		this.renderWidget();
 
 		return handle;
 	}
@@ -75,12 +80,14 @@ export class TeamLeader {
 		}
 		this.workers.delete(workerName);
 		this.childProcesses.delete(workerName);
+		this.renderWidget();
 	}
 
 	async killAll(): Promise<void> {
 		for (const name of [...this.workers.keys()]) {
 			await this.kill(name);
 		}
+		this.renderWidget();
 	}
 
 	getWorkers(): WorkerHandle[] {
@@ -123,6 +130,13 @@ export class TeamLeader {
 					sessionLastActivityAt: sessionLastActivity,
 				};
 
+				worker.ticketStatus = ticket.status;
+				worker.lastNote = ticket.notes.at(-1)?.text;
+				worker.status = nextWorkerStatus(worker.status, {
+					processAlive: alive,
+					ticketClosed: ticket.status === "closed" || ticket.status === "done",
+				});
+
 				const events = computePollEvents(worker, input);
 
 				for (const event of events) {
@@ -152,6 +166,20 @@ export class TeamLeader {
 		if (!hasActive && this.workers.size === 0) {
 			this.stopPolling();
 		}
+		this.renderWidget();
+	}
+
+	clearWidget() {
+		this.ctx?.ui.setWidget("pi-teams", undefined);
+	}
+
+	private renderWidget() {
+		if (!this.ctx) return;
+		if (this.workers.size === 0) {
+			this.ctx.ui.setWidget("pi-teams", undefined);
+			return;
+		}
+		this.ctx.ui.setWidget("pi-teams", this.widgetFactory);
 	}
 
 	private notifyLLM(event: PollEvent) {

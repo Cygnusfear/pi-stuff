@@ -41,6 +41,8 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 		name: config.workerName,
 		pid: child.pid!,
 		ticketId: config.ticketId,
+		ticketStatus: "open",
+		lastNote: undefined,
 		sessionFile,
 		worktreePath: config.useWorktree ? config.cwd : null,
 		status: "spawning",

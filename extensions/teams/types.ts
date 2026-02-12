@@ -4,6 +4,8 @@ export interface WorkerHandle {
 	name: string;
 	pid: number;
 	ticketId: string;
+	ticketStatus?: string;
+	lastNote?: string;
 	sessionFile: string;
 	worktreePath: string | null;
 	status: WorkerStatus;
