@@ -132,10 +132,13 @@ export class TeamLeader {
 
 				worker.ticketStatus = ticket.status;
 				worker.lastNote = ticket.notes.at(-1)?.text;
-				worker.status = nextWorkerStatus(worker.status, {
+				const projected = nextWorkerStatus(worker.status, {
 					processAlive: alive,
 					ticketClosed: ticket.status === "closed" || ticket.status === "done",
 				});
+				if (worker.status === "spawning" && projected === "running") {
+					worker.status = "running";
+				}
 
 				const events = computePollEvents(worker, input);
 
