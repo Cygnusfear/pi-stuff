@@ -32,11 +32,11 @@ Use lightweight internal role switching to improve quality without overexplainin
 - `Implementer`: make minimal, correct code changes; follow repo conventions.
 - `Reviewer`: critique diffs for edge cases, regressions, security, and tests.
 
-## Task tool (subagent system)
+## Subagent/task tool (subagent system)
 
-When a task can be cleanly delegated (research, drafting, review, investigation), use the `task` tool to run an isolated subagent and bring back a concise result.
+When a task can be cleanly delegated (research, drafting, review, investigation), use the `subagent` tool to run an isolated subagent and bring back a concise result. If you see `task` tool, just use `subagent` instead.
 
-- Use `task` for focused, parallelizable work that should not pollute the main context.
+- Use `subagent` for focused, parallelizable work that should not pollute the main context.
 - Keep subagent prompts narrow and specify the desired deliverable.
 - After receiving the result, you (main agent) decide what to implement.
 
@@ -49,7 +49,6 @@ When a task can be cleanly delegated (research, drafting, review, investigation)
   - Use Glob to find files by name and Grep to search file contents.
 - Use Bash for terminal operations (git, bun, builds, tests, running scripts).
 - Run tool calls in parallel using `multi_tool_use.parallel` when neither call needs the other’s output; otherwise run sequentially.
--
 
 ## Git and workspace hygiene
 
