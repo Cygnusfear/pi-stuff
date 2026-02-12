@@ -1,8 +1,14 @@
 import { hostname as osHostname } from "node:os";
 import { basename } from "node:path";
-import type { RenderedSegment, SegmentContext, SemanticColor, StatusLineSegment, StatusLineSegmentId } from "./types.js";
-import { fg, rainbow, applyColor } from "./theme.js";
-import { getIcons, SEP_DOT, getThinkingText } from "./icons.js";
+import { getIcons, getThinkingText, SEP_DOT } from "./icons.js";
+import { applyColor, fg, rainbow } from "./theme.js";
+import type {
+  RenderedSegment,
+  SegmentContext,
+  SemanticColor,
+  StatusLineSegment,
+  StatusLineSegmentId,
+} from "./types.js";
 
 // Helper to apply semantic color from context
 function color(ctx: SegmentContext, semantic: SemanticColor, text: string): string {
@@ -122,13 +128,13 @@ const gitSegment: StatusLineSegment = {
     const icons = getIcons();
     const opts = ctx.options.git ?? {};
     const { branch, staged, unstaged, untracked } = ctx.git;
-    const gitStatus = (staged > 0 || unstaged > 0 || untracked > 0) 
-      ? { staged, unstaged, untracked } 
-      : null;
+    const gitStatus =
+      staged > 0 || unstaged > 0 || untracked > 0 ? { staged, unstaged, untracked } : null;
 
     if (!branch && !gitStatus) return { content: "", visible: false };
 
-    const isDirty = gitStatus && (gitStatus.staged > 0 || gitStatus.unstaged > 0 || gitStatus.untracked > 0);
+    const isDirty =
+      gitStatus && (gitStatus.staged > 0 || gitStatus.unstaged > 0 || gitStatus.untracked > 0);
     const showBranch = opts.showBranch !== false;
     const branchColor: SemanticColor = isDirty ? "gitDirty" : "gitClean";
 
@@ -183,7 +189,7 @@ const thinkingSegment: StatusLineSegment = {
       xhigh: "xhigh",
     };
     const label = levelText[level] || level;
-    const content = `think:${label}`;
+    const content = `🧠 ${label}`;
 
     // Use rainbow effect for high/xhigh (like Claude Code ultrathink)
     if (level === "high" || level === "xhigh") {
@@ -339,7 +345,8 @@ const sessionSegment: StatusLineSegment = {
     const icons = getIcons();
     const sessionName = ctx.sessionName?.trim();
     const sessionId = ctx.sessionId;
-    let display = sessionName && sessionName.length > 0 ? sessionName : (sessionId?.slice(0, 8) || "new");
+    let display =
+      sessionName && sessionName.length > 0 ? sessionName : sessionId?.slice(0, 8) || "new";
     if (display.length > 28) display = `${display.slice(0, 27)}…`;
 
     // No explicit color
@@ -395,7 +402,7 @@ const extensionStatusesSegment: StatusLineSegment = {
     // Notification-style statuses (starting with "[") are shown above the editor instead
     const parts: string[] = [];
     for (const value of statuses.values()) {
-      if (value && !value.trimStart().startsWith('[')) {
+      if (value && !value.trimStart().startsWith("[")) {
         parts.push(value);
       }
     }

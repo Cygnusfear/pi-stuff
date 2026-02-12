@@ -10,7 +10,6 @@ import { getSeparator } from "./separators.js";
 import { renderSegment } from "./segments.js";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./git-status.js";
 import { ansi, getFgAnsiCode } from "./colors.js";
-import { WelcomeComponent, WelcomeHeader, discoverLoadedCounts, getRecentSessions } from "./welcome.js";
 import { getDefaultColors } from "./theme.js";
 import { 
   initVibeManager, 
@@ -721,112 +720,13 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     });
   }
 
-  function setupWelcomeHeader(ctx: any) {
-    const modelName = ctx.model?.name || ctx.model?.id || "No model";
-    const providerName = ctx.model?.provider || "Unknown";
-    const loadedCounts = discoverLoadedCounts();
-    const recentSessions = getRecentSessions(3);
-    
-    const header = new WelcomeHeader(modelName, providerName, recentSessions, loadedCounts);
-    welcomeHeaderActive = true; // Will be cleared on first user input
-    
-    ctx.ui.setHeader((_tui: any, _theme: any) => {
-      return {
-        render(width: number): string[] {
-          return header.render(width);
-        },
-        invalidate() {
-          header.invalidate();
-        },
-      };
-    });
+  function setupWelcomeHeader(_ctx: any) {
+    // Welcome UI intentionally disabled.
+    return;
   }
 
-  function setupWelcomeOverlay(ctx: any) {
-    const modelName = ctx.model?.name || ctx.model?.id || "No model";
-    const providerName = ctx.model?.provider || "Unknown";
-    const loadedCounts = discoverLoadedCounts();
-    const recentSessions = getRecentSessions(3);
-    
-    // Small delay to let pi-mono finish initialization
-    setTimeout(() => {
-      // Skip overlay if:
-      // 1. Dismissal was explicitly requested (agent_start/user_message fired)
-      // 2. Agent is already streaming
-      // 3. Session already has assistant messages (agent already responded)
-      if (welcomeOverlayShouldDismiss || isStreaming) {
-        welcomeOverlayShouldDismiss = false;
-        return;
-      }
-      
-      // Check if session already has activity (handles p "command" case)
-      const sessionEvents = ctx.sessionManager?.getBranch?.() ?? [];
-      const hasActivity = sessionEvents.some((e: any) => 
-        (e.type === "message" && e.message?.role === "assistant") ||
-        e.type === "tool_call" ||
-        e.type === "tool_result"
-      );
-      if (hasActivity) {
-        return;
-      }
-      
-      ctx.ui.custom(
-        (tui: any, _theme: any, _keybindings: any, done: (result: void) => void) => {
-          const welcome = new WelcomeComponent(
-            modelName,
-            providerName,
-            recentSessions,
-            loadedCounts,
-          );
-          
-          let countdown = 30;
-          let dismissed = false;
-          
-          const dismiss = () => {
-            if (dismissed) return;
-            dismissed = true;
-            clearInterval(interval);
-            dismissWelcomeOverlay = null;
-            done();
-          };
-          
-          // Store dismiss callback so user_message/keypress can trigger it
-          dismissWelcomeOverlay = dismiss;
-          
-          // Double-check: dismissal might have been requested between the outer check
-          // and this callback running
-          if (welcomeOverlayShouldDismiss) {
-            welcomeOverlayShouldDismiss = false;
-            dismiss();
-          }
-          
-          const interval = setInterval(() => {
-            if (dismissed) return;
-            countdown--;
-            welcome.setCountdown(countdown);
-            tui.requestRender();
-            if (countdown <= 0) dismiss();
-          }, 1000);
-          
-          return {
-            focused: false,
-            invalidate: () => welcome.invalidate(),
-            render: (width: number) => welcome.render(width),
-            handleInput: (_data: string) => dismiss(),
-            dispose: () => {
-              dismissed = true;
-              clearInterval(interval);
-            },
-          };
-        },
-        {
-          overlay: true,
-          overlayOptions: () => ({
-            verticalAlign: "center",
-            horizontalAlign: "center",
-          }),
-        },
-      ).catch(() => {});
-    }, 100);
+  function setupWelcomeOverlay(_ctx: any) {
+    // Welcome UI intentionally disabled.
+    return;
   }
 }

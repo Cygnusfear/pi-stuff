@@ -1,5 +1,5 @@
-import type { ColorScheme, PresetDef, StatusLinePreset } from "./types.js";
 import { getDefaultColors } from "./theme.js";
+import type { ColorScheme, PresetDef, StatusLinePreset } from "./types.js";
 
 // Get base colors from theme.ts (single source of truth)
 const DEFAULT_COLORS: ColorScheme = getDefaultColors();
@@ -10,6 +10,16 @@ const MINIMAL_COLORS: ColorScheme = {
   pi: "dim",
   model: "text",
   path: "text",
+  git: "dim",
+  gitClean: "dim",
+};
+
+// Minimal - more muted, less colorful
+const WERNER_COLORS: ColorScheme = {
+  ...DEFAULT_COLORS,
+  name: "accent",
+  model: "dim",
+  path: "dim",
   git: "dim",
   gitClean: "dim",
 };
@@ -26,15 +36,15 @@ const NERD_COLORS: ColorScheme = {
 
 export const PRESETS: Record<StatusLinePreset, PresetDef> = {
   default: {
-    leftSegments: ["pi", "model", "thinking", "path", "session", "git", "context_pct", "cache_read", "cost"],
+    leftSegments: ["session", "context_pct", "model", "thinking", "path"],
     rightSegments: [],
     secondarySegments: ["extension_statuses"],
-    separator: "powerline-thin",
-    colors: DEFAULT_COLORS,
+    separator: "dot",
+    colors: WERNER_COLORS,
     segmentOptions: {
-      model: { showThinkingLevel: false },
+      model: { showThinkingLevel: true },
       path: { mode: "basename" },
-      git: { showBranch: true, showStaged: true, showUnstaged: true, showUntracked: true },
+      // git: { showBranch: true, showStaged: true, showUnstaged: true, showUntracked: true },
     },
   },
 
@@ -62,7 +72,16 @@ export const PRESETS: Record<StatusLinePreset, PresetDef> = {
 
   full: {
     leftSegments: ["pi", "hostname", "model", "thinking", "path", "git", "subagents"],
-    rightSegments: ["token_in", "token_out", "cache_read", "cost", "context_pct", "time_spent", "time", "extension_statuses"],
+    rightSegments: [
+      "token_in",
+      "token_out",
+      "cache_read",
+      "cost",
+      "context_pct",
+      "time_spent",
+      "time",
+      "extension_statuses",
+    ],
     separator: "powerline",
     colors: DEFAULT_COLORS,
     segmentOptions: {
@@ -75,7 +94,18 @@ export const PRESETS: Record<StatusLinePreset, PresetDef> = {
 
   nerd: {
     leftSegments: ["pi", "hostname", "model", "thinking", "path", "git", "session", "subagents"],
-    rightSegments: ["token_in", "token_out", "cache_read", "cache_write", "cost", "context_pct", "context_total", "time_spent", "time", "extension_statuses"],
+    rightSegments: [
+      "token_in",
+      "token_out",
+      "cache_read",
+      "cache_write",
+      "cost",
+      "context_pct",
+      "context_total",
+      "time_spent",
+      "time",
+      "extension_statuses",
+    ],
     separator: "powerline",
     colors: NERD_COLORS,
     segmentOptions: {
