@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
+
+import { attachTiming, renderToolResult } from "./lib/tool-ui-utils";
 import { createTwoFilesPatch, diffLines } from "diff";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
@@ -871,16 +873,24 @@ export default function (pi: ExtensionAPI) {
 		label: "Apply Patch",
 		description: APPLY_PATCH_DESCRIPTION,
 		parameters: ApplyPatchParams,
+		renderResult(result, options, theme) {
+			return renderToolResult(result, !!options.expanded, theme);
+		},
 		async execute(_toolCallId, params: ApplyPatchParamsType, signal, _onUpdate, ctx) {
+			const startedAt = Date.now();
 			const baseCwd = resolveRepo(ctx.cwd);
 			const result = await applyPatch(baseCwd, params.patchText);
+			const endedAt = Date.now();
 			return {
 				content: [{ type: "text", text: result.output }],
-				details: {
-					diff: result.diff,
-					files: result.files,
-					cwd: baseCwd,
-				},
+				details: attachTiming(
+					{
+						diff: result.diff,
+						files: result.files,
+						cwd: baseCwd,
+					},
+					{ startedAt, endedAt, durationMs: endedAt - startedAt },
+				),
 			};
 		},
 	});
@@ -890,10 +900,18 @@ export default function (pi: ExtensionAPI) {
 		label: "Glob",
 		description: GLOB_DESCRIPTION,
 		parameters: GlobParams,
+		renderResult(result, options, theme) {
+			return renderToolResult(result, !!options.expanded, theme);
+		},
 		async execute(_toolCallId, params: GlobParamsType, signal, _onUpdate, ctx) {
+			const startedAt = Date.now();
 			const baseCwd = resolveRepo(ctx.cwd);
 			const result = await runGlob(pi, baseCwd, params, signal);
-			return { content: [{ type: "text", text: result.text }], details: result.details };
+			const endedAt = Date.now();
+			return {
+				content: [{ type: "text", text: result.text }],
+				details: attachTiming(result.details, { startedAt, endedAt, durationMs: endedAt - startedAt }),
+			};
 		},
 	});
 
@@ -902,9 +920,17 @@ export default function (pi: ExtensionAPI) {
 		label: "rg",
 		description: "Run ripgrep (rg) commands.",
 		parameters: CommandToolParams,
+		renderResult(result, options, theme) {
+			return renderToolResult(result, !!options.expanded, theme);
+		},
 		async execute(_toolCallId, params: CommandToolParamsType, signal, _onUpdate, ctx) {
+			const startedAt = Date.now();
 			const result = await runCommand(pi, ctx.cwd, "rg", params.args, params.cwd ?? params.repo, signal);
-			return { content: [{ type: "text", text: result.text }], details: result.details };
+			const endedAt = Date.now();
+			return {
+				content: [{ type: "text", text: result.text }],
+				details: attachTiming(result.details, { startedAt, endedAt, durationMs: endedAt - startedAt }),
+			};
 		},
 	});
 
@@ -913,9 +939,17 @@ export default function (pi: ExtensionAPI) {
 		label: "fd",
 		description: "Run fd commands.",
 		parameters: CommandToolParams,
+		renderResult(result, options, theme) {
+			return renderToolResult(result, !!options.expanded, theme);
+		},
 		async execute(_toolCallId, params: CommandToolParamsType, signal, _onUpdate, ctx) {
+			const startedAt = Date.now();
 			const result = await runCommand(pi, ctx.cwd, "fd", params.args, params.cwd ?? params.repo, signal);
-			return { content: [{ type: "text", text: result.text }], details: result.details };
+			const endedAt = Date.now();
+			return {
+				content: [{ type: "text", text: result.text }],
+				details: attachTiming(result.details, { startedAt, endedAt, durationMs: endedAt - startedAt }),
+			};
 		},
 	});
 }
