@@ -136,7 +136,111 @@ const validateCreateArgs = (args: string[]): string | null => {
 
 	if (missing.length === 0) return null;
 
-	return `Ticket creation requires ${missing.join(", ")}. Example: tk create "Title" -t task -p 2 --tags process,tooling -d "Describe the work."`;
+	return `Ticket creation requires ${missing.join(", ")}. Example: tk create "Title" -t task -p 2 --tags process,tooling -d "Describe the work."\n\nTip: prefer the todos_oneshot tool to create + start the ticket and append the standard Goal/AC/Verification template (no printf needed).`;
+};
+
+const TodosOneshotParams = Type.Object({
+	title: Type.String({ description: "Ticket title." }),
+	description: Type.String({ description: "Description text (-d/--description)." }),
+	tags: Type.String({ description: "Comma-separated tags (--tags)." }),
+	type: Type.Optional(Type.String({ description: "Ticket type (bug|feature|task|epic|chore). Default: task." })),
+	priority: Type.Optional(Type.Number({ description: "Priority 0-4, 0=highest. Default: 2." })),
+	goal: Type.Optional(Type.String({ description: "Goal section text. Defaults to description." })),
+	acceptanceCriteria: Type.Optional(Type.Array(Type.String({ description: "Acceptance criteria item." }))),
+	verification: Type.Optional(Type.Array(Type.String({ description: "Verification item." }))),
+	worktree: Type.Optional(Type.String({ description: "Worktree path. Default: ." })),
+	start: Type.Optional(Type.Boolean({ description: "Start ticket immediately. Default: true." })),
+	cwd: Type.Optional(Type.String({ description: "Working directory (overrides repo detection)." })),
+	repo: Type.Optional(Type.String({ description: "Alias for cwd." })),
+});
+
+type TodosOneshotParamsType = Static<typeof TodosOneshotParams>;
+
+type TodosOneshotDetails = {
+	id: string;
+	filePath: string;
+	cwd: string;
+	started: boolean;
+	appendedTemplate: boolean;
+};
+
+const buildChecklist = (items: string[] | undefined): string => {
+	const normalized = (items ?? []).map((item) => item.trim()).filter(Boolean);
+	const effective = normalized.length > 0 ? normalized : ["TODO"];
+	return effective.map((item) => `- [ ] ${item}`).join("\n");
+};
+
+const buildTicketTemplate = (params: TodosOneshotParamsType): string => {
+	const goal = params.goal?.trim() || params.description.trim();
+	const worktree = params.worktree?.trim() || ".";
+
+	return `\n\n## Goal\n${goal}\n\n## Acceptance Criteria\n${buildChecklist(params.acceptanceCriteria)}\n\n## Verification\n${buildChecklist(params.verification)}\n\n## Worktree\n- ${worktree}\n`;
+};
+
+const createTicketOneshot = async (
+	pi: ExtensionAPI,
+	baseCwd: string,
+	params: TodosOneshotParamsType,
+	signal?: AbortSignal,
+): Promise<{ text: string; details: TodosOneshotDetails }> => {
+	const cwd = resolveRepo(baseCwd, params.cwd ?? params.repo);
+	const title = params.title.trim();
+	const description = params.description.trim();
+	const tags = params.tags.trim();
+
+	if (!title) throw new Error("title is required");
+	if (!description) throw new Error("description is required");
+	if (!tags) throw new Error("tags is required");
+
+	const type = params.type?.trim() || "task";
+	const priority = params.priority ?? 2;
+	const start = params.start !== false;
+
+	const createRes = await pi.exec(
+		"tk",
+		["create", title, "-t", type, "-p", String(priority), "--tags", tags, "-d", description],
+		{ cwd, signal },
+	);
+	if (createRes.code !== 0) {
+		const out = [createRes.stdout, createRes.stderr].filter(Boolean).join(createRes.stderr ? "\n" : "");
+		const formatted = await formatOutput(out);
+		throw new Error(formatted.text);
+	}
+
+	const id = createRes.stdout.trim().split(/\s+/)[0];
+	if (!id) throw new Error("Failed to parse ticket id from tk output.");
+
+	if (start) {
+		const startRes = await pi.exec("tk", ["start", id], { cwd, signal });
+		if (startRes.code !== 0) {
+			const out = [startRes.stdout, startRes.stderr].filter(Boolean).join(startRes.stderr ? "\n" : "");
+			const formatted = await formatOutput(out);
+			throw new Error(`Failed to start ticket ${id}: ${formatted.text}`);
+		}
+	}
+
+	const filePath = path.join(cwd, ".tickets", `${id}.md`);
+	const template = buildTicketTemplate(params);
+
+	let appendedTemplate = false;
+	const current = await fsPromises.readFile(filePath, "utf8").catch(() => "");
+	if (!current.includes("\n## Goal\n")) {
+		await fsPromises.appendFile(filePath, template, "utf8");
+		appendedTemplate = true;
+	}
+
+	const relative = path.relative(cwd, filePath);
+	const msg = `Created ${id}${start ? " (started)" : ""}. Updated ${relative}${appendedTemplate ? " with template sections." : " (template already present)."}`;
+	return {
+		text: msg,
+		details: {
+			id,
+			filePath,
+			cwd,
+			started: start,
+			appendedTemplate,
+		},
+	};
 };
 
 const extractCwd = (args: string[]): { cwd?: string; rest: string[] } => {
@@ -264,6 +368,18 @@ export default function (pi: ExtensionAPI) {
 			},
 			theme,
 		);
+	});
+
+	pi.registerTool({
+		name: "todos_oneshot",
+		label: "Ticket Oneshot (tk)",
+		description:
+			"Create a tk ticket with required metadata, start it, and append the standard Goal/Acceptance Criteria/Verification/Worktree template to .tickets/<id>.md (no shell oneshot/printf).",
+		parameters: TodosOneshotParams,
+		async execute(_toolCallId, params: TodosOneshotParamsType, signal, _onUpdate, ctx) {
+			const result = await createTicketOneshot(pi, ctx.cwd, params, signal);
+			return { content: [{ type: "text", text: result.text }], details: result.details };
+		},
 	});
 
 	pi.registerTool({
