@@ -17,6 +17,8 @@
     ]
   },
   "dependencies": {
+    "@aliou/pi-utils-settings": "^0.1.0",
+    "@aliou/pi-utils-ui": "^0.1.0",
     "diff": "^7.0.0",
     "turndown": "^7.2.0"
   }

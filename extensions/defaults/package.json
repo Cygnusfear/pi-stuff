@@ -1,0 +1,16 @@
+{
+  "name": "@aliou/pi-defaults",
+  "private": true,
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@aliou/pi-utils-settings": "workspace:^",
+    "@aliou/pi-utils-ui": "workspace:^"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": ">=0.51.0"
+  }
+}
