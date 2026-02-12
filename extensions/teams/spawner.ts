@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import type { SpawnConfig, WorkerHandle } from "./types.js";
 
@@ -26,7 +27,11 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 		PI_TEAMS_WORKER_NAME: config.workerName,
 	};
 
-	const sessionDir = path.join(config.cwd, ".pi", "sessions", `team-${config.workerName}-${config.ticketId}`);
+	const keepSessions = process.env.PI_TEAMS_KEEP_WORKER_SESSIONS === "1";
+	const baseSessionDir = keepSessions
+		? path.join(config.cwd, ".pi", "sessions", "teams-workers")
+		: path.join(os.tmpdir(), "pi-teams-sessions");
+	const sessionDir = path.join(baseSessionDir, `team-${config.workerName}-${config.ticketId}-${Date.now()}`);
 
 	const child = spawn("pi", ["--non-interactive", "--session-dir", sessionDir, "-p", buildWorkerPrompt(config.ticketId, config.workerName)], {
 		cwd: config.cwd,
@@ -43,6 +48,7 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 		ticketId: config.ticketId,
 		ticketStatus: "open",
 		lastNote: undefined,
+		sessionDir,
 		sessionFile,
 		worktreePath: config.useWorktree ? config.cwd : null,
 		status: "spawning",

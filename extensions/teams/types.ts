@@ -6,6 +6,7 @@ export interface WorkerHandle {
 	ticketId: string;
 	ticketStatus?: string;
 	lastNote?: string;
+	sessionDir: string;
 	sessionFile: string;
 	worktreePath: string | null;
 	status: WorkerStatus;

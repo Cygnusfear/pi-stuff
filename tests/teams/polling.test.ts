@@ -6,6 +6,7 @@ const makeWorker = (overrides?: Partial<WorkerHandle>): WorkerHandle => ({
 	name: "alice",
 	pid: 1234,
 	ticketId: "p-abc1",
+	sessionDir: "/tmp/pi-teams-sessions/team-alice-p-abc1",
 	sessionFile: "/tmp/session.jsonl",
 	worktreePath: null,
 	status: "running",
