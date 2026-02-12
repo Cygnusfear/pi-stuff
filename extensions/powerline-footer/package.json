@@ -1,0 +1,34 @@
+{
+  "name": "pi-powerline-footer",
+  "version": "0.2.23",
+  "description": "Powerline-style status bar extension for pi coding agent",
+  "type": "module",
+  "bin": {
+    "pi-powerline-footer": "./cli.js"
+  },
+  "files": [
+    "*.ts",
+    "*.md",
+    "*.json",
+    "cli.js"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "coding-agent",
+    "powerline",
+    "status-bar",
+    "extension"
+  ],
+  "author": "Nico Bailon",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nicobailon/pi-powerline-footer.git"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
