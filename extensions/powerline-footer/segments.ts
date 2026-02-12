@@ -183,7 +183,7 @@ const thinkingSegment: StatusLineSegment = {
     const levelText: Record<string, string> = {
       off: "off",
       minimal: "min",
-      low: "low",
+      low: "balls",
       medium: "med",
       high: "high",
       xhigh: "xhigh",
@@ -350,7 +350,7 @@ const sessionSegment: StatusLineSegment = {
     if (display.length > 28) display = `${display.slice(0, 27)}…`;
 
     // No explicit color
-    return { content: withIcon(icons.session, display), visible: true };
+    return { content: color(ctx, "pi", withIcon(icons.session, display)), visible: true };
   },
 };
 

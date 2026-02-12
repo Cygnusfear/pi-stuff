@@ -1,6 +1,6 @@
 /**
  * Theme system for powerline-footer
- * 
+ *
  * Colors are resolved in order:
  * 1. User overrides from theme.json (if exists)
  * 2. Preset colors
@@ -9,15 +9,15 @@
 
 import type { Theme, ThemeColor } from "@mariozechner/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ColorScheme, ColorValue, SemanticColor } from "./types.js";
 
 // Default color scheme (uses pi theme colors)
 const DEFAULT_COLORS: Required<ColorScheme> = {
   pi: "accent",
-  model: "#d787af",  // Pink/mauve (matching original colors.ts)
-  path: "#00afaf",  // Teal/cyan (matching original colors.ts)
+  model: "#7D56F4", // Pink/mauve (matching original colors.ts)
+  path: "#7D56F4", // Teal/cyan (matching original colors.ts)
   git: "success",
   gitDirty: "warning",
   gitClean: "success",
@@ -34,8 +34,14 @@ const DEFAULT_COLORS: Required<ColorScheme> = {
 
 // Rainbow colors for high thinking levels
 const RAINBOW_COLORS = [
-  "#b281d6", "#d787af", "#febc38", "#e4c00f", 
-  "#89d281", "#00afaf", "#178fb9", "#b281d6",
+  "#b281d6",
+  "#d787af",
+  "#febc38",
+  "#e4c00f",
+  "#89d281",
+  "#00afaf",
+  "#178fb9",
+  "#b281d6",
 ];
 
 // Cache for user theme overrides
@@ -81,16 +87,11 @@ function loadUserTheme(): ColorScheme {
 /**
  * Resolve a semantic color to an actual color value
  */
-export function resolveColor(
-  semantic: SemanticColor,
-  presetColors?: ColorScheme
-): ColorValue {
+export function resolveColor(semantic: SemanticColor, presetColors?: ColorScheme): ColorValue {
   const userTheme = loadUserTheme();
-  
+
   // Priority: user overrides > preset colors > defaults
-  return userTheme[semantic] 
-    ?? presetColors?.[semantic] 
-    ?? DEFAULT_COLORS[semantic];
+  return userTheme[semantic] ?? presetColors?.[semantic] ?? DEFAULT_COLORS[semantic];
 }
 
 /**
@@ -114,11 +115,7 @@ function hexToAnsi(hex: string): string {
 /**
  * Apply a color to text using the pi theme or custom hex
  */
-export function applyColor(
-  theme: Theme,
-  color: ColorValue,
-  text: string
-): string {
+export function applyColor(theme: Theme, color: ColorValue, text: string): string {
   if (isHexColor(color)) {
     return `${hexToAnsi(color)}${text}\x1b[0m`;
   }
@@ -132,7 +129,7 @@ export function fg(
   theme: Theme,
   semantic: SemanticColor,
   text: string,
-  presetColors?: ColorScheme
+  presetColors?: ColorScheme,
 ): string {
   const color = resolveColor(semantic, presetColors);
   return applyColor(theme, color, text);
