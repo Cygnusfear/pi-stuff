@@ -29,7 +29,8 @@ export type PollEvent =
 	| { type: "comment"; worker: WorkerHandle; comment: string }
 	| { type: "alive"; worker: WorkerHandle };
 
-export const POLL_INTERVAL_MS = 3000;
+const pollMs = Number(process.env.PI_TEAMS_POLL_INTERVAL_MS ?? "1000");
+export const POLL_INTERVAL_MS = Number.isFinite(pollMs) && pollMs >= 250 ? Math.floor(pollMs) : 1000;
 export const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
 export const TEAMS_TAG = "team";
 export const WORKER_ENV_PREFIX = "PI_TEAMS";

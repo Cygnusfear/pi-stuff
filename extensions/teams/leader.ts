@@ -19,6 +19,7 @@ export class TeamLeader {
 	private pi: ExtensionAPI;
 	private ctx: ExtensionContext | null = null;
 	private widgetFactory = createTeamsWidget(() => this.getWorkers());
+	private pollInFlight = false;
 
 	constructor(pi: ExtensionAPI) {
 		this.pi = pi;
@@ -31,6 +32,7 @@ export class TeamLeader {
 
 	startPolling() {
 		if (this.pollTimer) return;
+		void this.poll(); // immediate tick so first events are not delayed by the interval window
 		this.pollTimer = setInterval(() => void this.poll(), POLL_INTERVAL_MS);
 	}
 
@@ -100,6 +102,9 @@ export class TeamLeader {
 
 	private async poll() {
 		if (!this.ctx) return;
+		if (this.pollInFlight) return;
+		this.pollInFlight = true;
+		try {
 
 		for (const [name, worker] of this.workers) {
 			if (["done", "failed", "killed"].includes(worker.status)) continue;
@@ -170,6 +175,9 @@ export class TeamLeader {
 			this.stopPolling();
 		}
 		this.renderWidget();
+		} finally {
+			this.pollInFlight = false;
+		}
 	}
 
 	clearWidget() {
