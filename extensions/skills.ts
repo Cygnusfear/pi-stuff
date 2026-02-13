@@ -28,7 +28,7 @@ export default function skillsExtension(pi: ExtensionAPI) {
 				if (r.code === 0) {
 					const out = cleanOutput(r.stdout);
 					// Only flag if there are actual updates, not "no skills tracked"
-					if (out.match(/update|available|new version/i) && !out.match(/no skills tracked|not tracked|install skills/i)) {
+					if (out.match(/updates? available|new version|can be updated/i) && !out.match(/no skills tracked|not tracked|install skills/i)) {
 						updates.push("skills");
 					}
 				}
@@ -81,7 +81,7 @@ export default function skillsExtension(pi: ExtensionAPI) {
 				ctx.ui.notify(`Check failed (exit ${r.code}): ${r.stderr}`, "error");
 			} else {
 				const out = cleanOutput(r.stdout);
-				if (out.match(/update|available|new version/i)) {
+				if (out.match(/updates? available|new version|can be updated/i)) {
 					ctx.ui.setStatus("skills", "⬆ updates available");
 				} else {
 					ctx.ui.setStatus("skills", undefined);
