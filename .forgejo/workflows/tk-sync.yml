@@ -9,7 +9,7 @@ on:
 
 jobs:
   sync:
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    if: "!contains(github.event.head_commit.message, '[skip ci]') && github.event.head_commit.author.name != 'tk-sync'"
     runs-on: host
     steps:
       - name: Checkout via token auth
