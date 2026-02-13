@@ -35,7 +35,11 @@ async function runTeamsAction(pi: ExtensionAPI, leader: TeamLeader, params: Team
 		if (workers.length === 0) {
 			return { content: [{ type: "text" as const, text: "No active workers." }] };
 		}
-		const lines = workers.map((w) => `${w.name}: ${w.status} | ticket #${w.ticketId} | pid ${w.pid}`);
+		const lines = workers.map((w) => {
+			const parts = [`${w.name}: ${w.status} | ticket #${w.ticketId} | pid ${w.pid}`];
+			if (w.lastNote) parts.push(`  last note: ${w.lastNote.slice(0, 120)}`);
+			return parts.join("\n");
+		});
 		return { content: [{ type: "text" as const, text: lines.join("\n") }] };
 	}
 
@@ -101,7 +105,11 @@ Actions:
 - delegate: Create tickets and spawn workers. Provide "tasks" array with { text, assignee? }.
 - list: Show all active workers and their status.
 - kill: Kill a specific worker by name.
-- kill_all: Kill all workers.`,
+- kill_all: Kill all workers.
+
+IMPORTANT: After delegating, do NOT poll or loop-call "list" to check on workers.
+You will be automatically notified via [team-event] messages when workers post progress, complete, or fail.
+Just continue with other work or wait for the user. Only use "list" if the user explicitly asks for worker status.`,
 		parameters: TeamsParams,
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			return runTeamsAction(pi, leader, params, ctx);

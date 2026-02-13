@@ -20,6 +20,10 @@ export class TeamLeader {
 	private ctx: ExtensionContext | null = null;
 	private widgetFactory = createTeamsWidget(() => this.getWorkers());
 	private pollInFlight = false;
+	/** Workers whose process just exited — next poll handles them immediately */
+	private processExitQueue = new Set<string>();
+	/** When false, suppress progress comment events (toggle via /team thinking) */
+	showComments = true;
 
 	constructor(pi: ExtensionAPI) {
 		this.pi = pi;
@@ -32,7 +36,7 @@ export class TeamLeader {
 
 	startPolling() {
 		if (this.pollTimer) return;
-		void this.poll(); // immediate tick so first events are not delayed by the interval window
+		void this.poll();
 		this.pollTimer = setInterval(() => void this.poll(), POLL_INTERVAL_MS);
 	}
 
@@ -68,8 +72,16 @@ export class TeamLeader {
 		const { process: child, handle } = spawnWorker(config);
 		this.workers.set(workerName, handle);
 		this.childProcesses.set(workerName, child);
-		this.renderWidget();
 
+		// Listen for process exit — this is the real-time signal, not polling.
+		child.on("close", (code) => {
+			handle.exitCode = code;
+			this.processExitQueue.add(workerName);
+			// Trigger immediate poll to handle the exit
+			void this.poll();
+		});
+
+		this.renderWidget();
 		return handle;
 	}
 
@@ -82,6 +94,7 @@ export class TeamLeader {
 		}
 		this.workers.delete(workerName);
 		this.childProcesses.delete(workerName);
+		this.processExitQueue.delete(workerName);
 		this.renderWidget();
 	}
 
@@ -145,6 +158,42 @@ export class TeamLeader {
 					worker.status = "running";
 				}
 
+				// Process exited but ticket still open — worker forgot to close.
+				// Close it on their behalf and surface whatever they left behind.
+				if (!alive && ticket.status !== "closed" && ticket.status !== "done") {
+					const lastNote = ticket.notes.at(-1)?.text;
+					const exitCode = worker.exitCode ?? null;
+
+					// Close the ticket so it doesn't dangle
+					await this.pi.exec("tk", ["close", worker.ticketId], { cwd: this.ctx.cwd, timeout: 5000 }).catch(() => {});
+
+					const resultText = lastNote ?? "(no notes left by worker)";
+					const isSuccess = exitCode === 0;
+
+					worker.status = isSuccess ? "done" : "failed";
+					worker.lastActivityAt = Date.now();
+
+					if (isSuccess) {
+						this.notifyLLM({
+							type: "completed",
+							worker: { ...worker },
+							result: resultText,
+						});
+					} else {
+						this.notifyLLM({
+							type: "failed",
+							worker: { ...worker },
+							reason: `process exited (code ${exitCode}), ticket was still open. Last note: ${resultText}`,
+						});
+					}
+
+					await cleanupWorker(this.ctx.cwd, worker);
+					this.workers.delete(name);
+					this.childProcesses.delete(name);
+					this.processExitQueue.delete(name);
+					continue;
+				}
+
 				const events = computePollEvents(worker, input);
 
 				for (const event of events) {
@@ -161,6 +210,7 @@ export class TeamLeader {
 						await cleanupWorker(this.ctx.cwd, worker);
 						this.workers.delete(name);
 						this.childProcesses.delete(name);
+						this.processExitQueue.delete(name);
 						break;
 					}
 				}
@@ -168,6 +218,8 @@ export class TeamLeader {
 				// Polling error; skip, try next cycle
 			}
 		}
+
+		this.processExitQueue.clear();
 
 		// Stop polling if no active workers remain
 		const hasActive = [...this.workers.values()].some((w) => !["done", "failed", "killed"].includes(w.status));
@@ -193,7 +245,27 @@ export class TeamLeader {
 		this.ctx.ui.setWidget("pi-teams", this.widgetFactory);
 	}
 
+	/** Track which completed/failed events we've already sent to avoid duplicates */
+	private notifiedTerminal = new Set<string>();
+
 	private notifyLLM(event: PollEvent) {
+		// Dedupe: only send one terminal notification per worker
+		if (event.type === "completed" || event.type === "failed") {
+			const key = `${event.worker.name}:terminal`;
+			if (this.notifiedTerminal.has(key)) return;
+			this.notifiedTerminal.add(key);
+		}
+
+		// Dedupe: skip DONE-prefixed comment events — that text is already in the completed event
+		if (event.type === "comment" && event.comment.startsWith("DONE:")) {
+			return;
+		}
+
+		// Suppress progress comments when thinking is toggled off
+		if (event.type === "comment" && !this.showComments) {
+			return;
+		}
+
 		const msg = formatPollEvent(event);
 		this.pi.sendMessage(
 			{
@@ -204,10 +276,9 @@ export class TeamLeader {
 			{ deliverAs: "followUp" },
 		);
 
-		// Reactivate the agent when a worker reaches a terminal state.
-		// This lets the leader continue orchestration immediately (e.g. start next wave).
+		// Reactivate the agent on terminal events so leader can continue orchestration.
 		if (event.type === "completed" || event.type === "failed") {
-			this.pi.sendUserMessage(msg, { deliverAs: "followUp" });
+			this.pi.sendUserMessage(`[team] ${event.worker.name} finished — check results above`, { deliverAs: "followUp" });
 		}
 	}
 }

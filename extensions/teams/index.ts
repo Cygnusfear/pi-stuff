@@ -14,12 +14,12 @@ export default function (pi: ExtensionAPI) {
 	const leader = new TeamLeader(pi);
 	registerTeamsTool(pi, leader);
 	pi.registerCommand("team", {
-		description: "Team control: /team list | /team kill <name> | /team kill_all | /team delegate <worker>:<task>",
+		description: "Team control: /team list | /team kill <name> | /team kill_all | /team delegate <worker>:<task> | /team thinking",
 		handler: async (args, ctx) => {
 			const input = (args ?? "").trim();
 			const show = (text: string, type: "info" | "warning" | "error" = "info") => ctx.ui.notify(text, type);
 			if (!input || input === "help") {
-				show("/team list | /team kill <name> | /team kill_all | /team delegate <worker>:<task>");
+				show("/team list | /team kill <name> | /team kill_all | /team delegate <worker>:<task> | /team thinking");
 				return;
 			}
 
@@ -39,6 +39,12 @@ export default function (pi: ExtensionAPI) {
 			if (input === "kill_all") {
 				const res = await runTeamsAction(pi, leader, { action: "kill_all" }, ctx);
 				show(res.content[0]?.text ?? "", res.isError ? "error" : "info");
+				return;
+			}
+
+			if (input === "thinking") {
+				leader.showComments = !leader.showComments;
+				show(`Worker notes ${leader.showComments ? "visible" : "hidden"}`);
 				return;
 			}
 

@@ -13,6 +13,7 @@ export interface WorkerHandle {
 	spawnedAt: number;
 	lastActivityAt: number;
 	lastSeenCommentCount: number;
+	exitCode?: number | null;
 }
 
 export interface SpawnConfig {

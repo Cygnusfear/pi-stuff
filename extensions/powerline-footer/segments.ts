@@ -117,7 +117,7 @@ const pathSegment: StatusLineSegment = {
       }
     }
 
-    const content = withIcon(icons.folder, pwd);
+    const content = withIcon(icons.folder, " " + pwd);
     return { content: color(ctx, "path", content), visible: true };
   },
 };
