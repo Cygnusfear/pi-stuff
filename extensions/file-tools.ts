@@ -233,13 +233,17 @@ const runCommand = async (
 	explicitCwd?: string,
 	signal?: AbortSignal,
 ) => {
-	const tokens = splitArgs(args ?? "");
+	const raw = args ?? "";
+	const needsShell = raw.includes("|") || raw.includes(">") || raw.includes("<");
+	const tokens = splitArgs(raw);
 	const { cwd: argsCwd, rest } = extractCwd(tokens);
 	const cwd = resolveRepo(baseCwd, explicitCwd ?? argsCwd);
 	const commandArgs = rest;
 	const commandLabel = [command, ...commandArgs].join(" ");
 
-	const result = await pi.exec(command, commandArgs, { cwd, signal });
+	const result = needsShell
+		? await pi.exec("sh", ["-c", `${command} ${raw}`], { cwd, signal })
+		: await pi.exec(command, commandArgs, { cwd, signal });
 	const output = [result.stdout, result.stderr].filter(Boolean).join(result.stderr ? "\n" : "");
 	const formatted = await formatOutput(output);
 
@@ -948,7 +952,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "fd",
 		label: "fd",
-		description: "Run fd commands.",
+		description: "Run fd commands. fd [pattern] [-e ext] [-t f|d] [path]. Example: fd -e ts src/, fd -t d node_modules",
 		parameters: CommandToolParams,
 		renderResult(result, options, theme) {
 			return renderToolResult(result, !!options.expanded, theme);
