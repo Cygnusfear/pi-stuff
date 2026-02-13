@@ -1,18 +1,32 @@
-# pi-stuff / werner
+# 🦚 pi-stuff / werner
 
 Extensions, prompts, and themes for [pi](https://github.com/badlogic/pi-mono) — a coding agent TUI.
 
 <img width="1948" height="2378" alt="Screenshot 2026-02-13 at 06 45 40" src="https://github.com/user-attachments/assets/e5a8288c-4493-44ea-a3fa-dd04a05192da" />
 
-## Install
+## 💅 Install
+
+Install [pi](https://github.com/badlogic/pi-mono).
+
+Then install this:
 
 ```bash
 pi install https://github.com/cygnusfear/pi-stuff
 ```
 
-Updates with `pi update`. Skills live in a separate repo: [agent-skills](https://github.com/cygnusfear/agent-skills).
+Workflow relies heavily on the use of [tk](https://github.com/wedow/ticket) as the main driver of inter-agent communication, coordination, task management, and archiving. Oracle & Delphi skills use `teams`, which in turns relies on `tk` for coordination. 
 
-## Extensions
+### 🏇 Skills
+
+All works independently of [agent-skills](https://github.com/cygnusfear/agent-skills) but is synergistic. Skills can be installed with this command from within `pi`:
+
+```bash
+/skills:install
+```
+
+Updates with `pi update`.
+
+## 💆‍♂️ Wat
 
 ### Core kit
 
