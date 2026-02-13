@@ -5,3 +5,4 @@ node_modules/
 .agents/
 .pi/skills/
 .pi-teams/
+extensions/brave-search.config.json

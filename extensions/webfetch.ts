@@ -56,6 +56,7 @@ const createHeaders = (format: WebFetchDetails["format"]) => ({
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
 	Accept: createAcceptHeader(format),
 	"Accept-Language": "en-US,en;q=0.9",
+	"Accept-Encoding": "identity",
 });
 
 const stripHtml = (html: string): string => {
@@ -183,11 +184,15 @@ export default function (pi: ExtensionAPI) {
 				const content = new TextDecoder().decode(arrayBuffer);
 				const contentType = response.headers.get("content-type") || "";
 
+				const isMarkdown = contentType.includes("text/markdown") || contentType.includes("text/x-markdown");
+				const isHtml = contentType.includes("text/html");
+				const markdownTokens = response.headers.get("x-markdown-tokens");
+
 				let output = content;
 				if (format === "markdown") {
-					output = contentType.includes("text/html") ? convertHTMLToMarkdown(content) : content;
+					output = isMarkdown ? content : isHtml ? convertHTMLToMarkdown(content) : content;
 				} else if (format === "text") {
-					output = contentType.includes("text/html") ? stripHtml(content) : content;
+					output = isHtml ? stripHtml(content) : content;
 				}
 
 				const truncated = await applyTruncation(output);
