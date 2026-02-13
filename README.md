@@ -2,6 +2,8 @@
 
 Extensions, prompts, and themes for [pi](https://github.com/badlogic/pi-mono) — a coding agent TUI.
 
+<img width="1948" height="2378" alt="Screenshot 2026-02-13 at 06 45 40" src="https://github.com/user-attachments/assets/e5a8288c-4493-44ea-a3fa-dd04a05192da" />
+
 ## Install
 
 ```bash
