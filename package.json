@@ -10,6 +10,9 @@
     ],
     "prompts": [
       "./prompts"
+    ],
+    "themes": [
+      "./themes"
     ]
   },
   "dependencies": {
