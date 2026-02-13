@@ -67,9 +67,17 @@ export class TeamLeader {
 		this.childProcesses.set(workerName, child);
 
 		// Process exit — the definitive completion signal
-		child.on("close", (code) => {
+		const debugPath = path.join(cwd, `.pi-teams-close-${workerName}.log`);
+		child.on("exit", (code) => {
+			fs.writeFileSync(debugPath, `exit event at ${new Date().toISOString()} code=${code}\n`);
 			handle.exitCode = code;
 			void this.handleWorkerExit(workerName, handle, code);
+		});
+		child.on("close", (code) => {
+			fs.appendFileSync(debugPath, `close event at ${new Date().toISOString()} code=${code}\n`);
+		});
+		child.on("error", (err) => {
+			fs.appendFileSync(debugPath, `error event at ${new Date().toISOString()} err=${err.message}\n`);
 		});
 
 		// Watch ticket file for progress notes
