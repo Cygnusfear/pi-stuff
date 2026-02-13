@@ -68,13 +68,13 @@ Standing on the shoulders of giants — and occasionally raiding their repos.
 
 His [benchmark](https://blog.can.ac/2026/02/12/the-harness-problem/) across 16 models showed hashline matches or beats `str_replace` and `apply_patch` for nearly every model — Grok Code Fast went from 6.7% → 68.3% just by changing the edit format. Our `hashline-tools.ts` is directly from his implementation.
 
-### Subagents — [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)
+### Teams — [tmustier/pi-agent-teams](https://github.com/tmustier/pi-agent-teams)
 
-Can also built [`@oh-my-pi/subagents`](https://npmjs.com/package/@oh-my-pi/subagents) — a task delegation system with specialized agents (task, planner, explore, reviewer, browser) and structured output. Our `teams/` extension reimplements this concept around `tk` tickets and git worktree isolation.
+**Thomas Mustier** built the first Pi extension bringing Claude Code–style agent teams to Pi — shared task lists, auto-claim, file-based IPC, and worktree isolation. Our `teams/` extension takes the same core idea but pivots all coordination through `tk` tickets instead of file-per-task state.
 
-### Agent prompts — [mitsuhiko/agent-prompts](https://github.com/mitsuhiko/agent-prompts)
+### Subagents — [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) & [nicobailon/pi-subagents](https://github.com/nicobailon/pi-subagents)
 
-**Armin Ronacher** (creator of Flask) maintains specialized prompt systems for agentic coding workflows. His [talk](https://speakerdeck.com/mitsuhiko/agentic-coding-the-future-of-software-development-with-agents) and [video](https://www.youtube.com/watch?v=ANQ1IYsFM2s) on building with Pi informed our prompt and role patterns.
+Can Bölük built [`@oh-my-pi/subagents`](https://npmjs.com/package/@oh-my-pi/subagents) — a task delegation system with specialized agents (task, planner, explore, reviewer, browser) and structured output. **Nico Bailon** built `pi-subagents` — async subagent delegation with chains, parallel execution, and session sharing. Both informed our teams design, which reimplements these concepts around `tk` tickets and git worktree isolation.
 
 ### UI & extensions
 
