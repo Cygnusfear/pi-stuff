@@ -19,6 +19,7 @@ import {
 	createComment,
 	ensureLabel,
 	checkUserExists,
+	searchIssueByTkId,
 } from "./forgejo-api.js";
 
 const PRIORITY_COLORS: Record<number, string> = {
@@ -83,6 +84,15 @@ async function syncTicket(cfg: ForgejoConfig, ticket: Ticket, ticketPath: string
 	const state = ticketState(ticket.status);
 
 	if (ticket.forgejoIssue == null) {
+		// Check if issue already exists (dedupe across concurrent runs)
+		const existing = await searchIssueByTkId(cfg, ticket.id);
+		if (existing) {
+			ticket.forgejoIssue = existing.number;
+			await writeFile(ticketPath, serializeTicket(ticket));
+			console.log(`🔗 Found existing issue #${existing.number} for ${ticket.id}`);
+			return true;
+		}
+
 		// Create new issue
 		const labelIds = await resolveLabelIds(cfg, ticket);
 		let assignee: string | undefined;

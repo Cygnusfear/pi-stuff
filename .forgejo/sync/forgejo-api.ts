@@ -115,6 +115,15 @@ export async function ensureLabel(cfg: ForgejoConfig, name: string, color = "#00
 	return res.json();
 }
 
+export async function searchIssueByTkId(cfg: ForgejoConfig, tkId: string): Promise<ForgejoIssue | null> {
+	// Search for issues containing the tk ID marker in body
+	const res = await api(cfg, "GET", `/issues?state=all&type=issues&limit=5&q=${encodeURIComponent(`tk: \`${tkId}\``)}`);
+	if (!res.ok) return null;
+	const issues: ForgejoIssue[] = await res.json();
+	// Verify the body actually contains the marker (search can be fuzzy)
+	return issues.find((i) => i.body?.includes(`\`${tkId}\``)) ?? null;
+}
+
 export async function checkUserExists(cfg: ForgejoConfig, username: string): Promise<boolean> {
 	const url = `${cfg.url}/api/v1/users/${username}`;
 	const res = await fetch(url, {
