@@ -67,17 +67,9 @@ export class TeamLeader {
 		this.childProcesses.set(workerName, child);
 
 		// Process exit — the definitive completion signal
-		const debugPath = path.join(cwd, `.pi-teams-close-${workerName}.log`);
 		child.on("exit", (code) => {
-			fs.writeFileSync(debugPath, `exit event at ${new Date().toISOString()} code=${code}\n`);
 			handle.exitCode = code;
 			void this.handleWorkerExit(workerName, handle, code);
-		});
-		child.on("close", (code) => {
-			fs.appendFileSync(debugPath, `close event at ${new Date().toISOString()} code=${code}\n`);
-		});
-		child.on("error", (err) => {
-			fs.appendFileSync(debugPath, `error event at ${new Date().toISOString()} err=${err.message}\n`);
 		});
 
 		// Watch ticket file for progress notes
@@ -147,10 +139,6 @@ export class TeamLeader {
 		if (!this.ctx) return;
 		if (["done", "failed", "killed"].includes(worker.status)) return;
 
-		// Debug breadcrumb
-		const debugFile = path.join(this.ctx.cwd, `.pi-teams-debug-${name}.log`);
-		fs.writeFileSync(debugFile, `handleWorkerExit called at ${new Date().toISOString()}\nexit=${exitCode}\nstatus=${worker.status}\n`);
-
 		// Stop watching
 		this.unwatchWorker(name);
 
@@ -179,13 +167,11 @@ export class TeamLeader {
 		worker.lastNote = lastNote;
 		worker.lastActivityAt = Date.now();
 
-		const event: PollEvent = isSuccess
-			? { type: "completed", worker: { ...worker }, result: lastNote }
-			: { type: "failed", worker: { ...worker }, reason: `process exited (code ${exitCode}). Last note: ${lastNote}` };
-
-		fs.appendFileSync(debugFile, `notifying: ${event.type}\n`);
-		this.notifyLLM(event);
-		fs.appendFileSync(debugFile, `notified OK\n`);
+		this.notifyLLM(
+			isSuccess
+				? { type: "completed", worker: { ...worker }, result: lastNote }
+				: { type: "failed", worker: { ...worker }, reason: `process exited (code ${exitCode}). Last note: ${lastNote}` },
+		);
 
 		await cleanupWorker(this.ctx.cwd, worker).catch(() => {});
 		this.childProcesses.delete(name);
