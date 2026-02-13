@@ -59,7 +59,8 @@ Common gotcha: rg patterns are regex by default.
 Examples:
 - Literal search: rg -n -F "sendUserMessage|sendMessage(" src/
 - Regex search:   rg -n "sendUserMessage|sendMessage\\(" src/
-- Scoped regex:   rg -n "(foo|bar)" extensions/`;
+- Scoped regex:   rg -n "(foo|bar)" extensions/
+- Piping:         rg -n "pattern" src/ | head -5`;
 
 const CommandToolParams = Type.Object({
 	args: Type.Optional(Type.String({ description: "Arguments to pass to the command." })),
@@ -139,7 +140,14 @@ const splitArgs = (input: string): string[] => {
 		}
 
 		if (char === "\\" && quote !== "'") {
-			escape = true;
+			if (quote === '"') {
+				// Inside double quotes: standard shell escape (consume backslash)
+				escape = true;
+			} else {
+				// Outside quotes: preserve backslash (for regex etc.)
+				current += "\\";
+				escape = true;
+			}
 			continue;
 		}
 
