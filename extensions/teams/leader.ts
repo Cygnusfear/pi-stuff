@@ -285,12 +285,19 @@ export class TeamLeader {
 	}
 }
 
+const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
+const YELLOW = "\x1b[33m";
+const CYAN = "\x1b[36m";
+const DIM = "\x1b[2m";
+const RESET = "\x1b[0m";
+
 const ICONS = {
-	done: "\uF00C",    // nf-fa-check
-	fail: "\uF00D",    // nf-fa-times
-	warn: "\uF071",    // nf-fa-warning
-	comment: "\uF075", // nf-fa-comment
-	alive: "\uF111",   // nf-fa-circle
+	done: `${GREEN}\uF00C${RESET}`,     // nf-fa-check
+	fail: `${RED}\uF00D${RESET}`,       // nf-fa-times
+	warn: `${YELLOW}\uF071${RESET}`,    // nf-fa-warning
+	comment: `${CYAN}\uF075${RESET}`,   // nf-fa-comment
+	alive: `${DIM}\uF111${RESET}`,      // nf-fa-circle
 };
 
 function formatPollEvent(event: PollEvent): string {
