@@ -16,6 +16,7 @@ export class TeamLeader {
 	private workers = new Map<string, WorkerHandle>();
 	private childProcesses = new Map<string, ChildProcess>();
 	private pollTimer: ReturnType<typeof setInterval> | null = null;
+	private cleanupTimer: ReturnType<typeof setTimeout> | null = null;
 	private pi: ExtensionAPI;
 	private ctx: ExtensionContext | null = null;
 	private widgetFactory = createTeamsWidget(() => this.getWorkers());
@@ -49,6 +50,12 @@ export class TeamLeader {
 
 	async delegate(ticketId: string, workerName: string, useWorktree: boolean): Promise<WorkerHandle> {
 		if (!this.ctx) throw new Error("Leader context not set");
+
+		// Cancel pending cleanup — new work starting
+		if (this.cleanupTimer) {
+			clearTimeout(this.cleanupTimer);
+			this.cleanupTimer = null;
+		}
 
 		const repoDir = this.ctx.cwd;
 		let cwd = repoDir;
@@ -227,11 +234,26 @@ export class TeamLeader {
 		const hasActive = [...this.workers.values()].some((w) => !["done", "failed", "killed"].includes(w.status));
 		if (!hasActive) {
 			this.stopPolling();
+			this.scheduleCleanup();
 		}
 		this.renderWidget();
 		} finally {
 			this.pollInFlight = false;
 		}
+	}
+
+	private scheduleCleanup() {
+		if (this.cleanupTimer) return;
+		this.cleanupTimer = setTimeout(() => {
+			this.cleanupTimer = null;
+			// Remove terminal workers from map
+			for (const [name, w] of this.workers) {
+				if (["done", "failed", "killed"].includes(w.status)) {
+					this.workers.delete(name);
+				}
+			}
+			this.renderWidget();
+		}, 60_000);
 	}
 
 	clearWidget() {

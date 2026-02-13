@@ -1,0 +1,136 @@
+# Worker Lifecycle: From Spawn to Completion
+
+This document describes the full lifecycle of a worker agent in the pi teams extension, covering all state transitions and ticket interactions.
+
+## Overview
+
+A **worker** is a headless pi agent process spawned by the **leader** (the interactive pi session). Each worker is assigned a ticket, works autonomously in its own worktree, and communicates progress through ticket notes. The leader polls workers and reacts to state changes.
+
+## Lifecycle Phases
+
+### 1. Delegation (Leader Side)
+
+When the leader's `teams` tool receives a `delegate` action:
+
+1. **Create ticket** — `tk create <task> -d <task> --tags team -a <workerName>`
+2. **Start ticket** — `tk start <ticketId>` (moves ticket to `in_progress`)
+3. **Create worktree** (if `useWorktree: true`) — `git worktree add .pi-teams/<workerName> -b teams/<workerName>/<ticketId> HEAD`
+4. **Spawn process** — `pi --non-interactive --session-dir <sessionDir> -p <prompt>`
+
+The worker process receives its assignment via environment variables:
+- `PI_TEAMS_WORKER=1` — identifies the process as a worker
+- `PI_TEAMS_TICKET_ID=<ticketId>` — the assigned ticket
+- `PI_TEAMS_WORKER_NAME=<name>` — the worker's name
+- `PI_TEAMS_LEADER_SESSION=<path>` — path to leader's session file
+
+### 2. Worker Initialization
+
+On startup (`index.ts`), the extension detects `PI_TEAMS_WORKER=1` and calls `runWorker()` instead of the leader setup. This:
+
+1. Registers a **`team_comment`** tool so the LLM can post notes to its ticket via `tk add-note <ticketId> <message>`
+2. Registers an **`agent_end`** hook that auto-closes the ticket: `tk add-note <ticketId> "DONE: Task completed."` then `tk close <ticketId>`
+
+### 3. Worker Execution
+
+The worker receives a system prompt instructing it to:
+1. Read its ticket (`tk show <ticketId>`)
+2. Do the work described
+3. Comment progress (`tk add-note <ticketId> "progress..."`)
+4. Close on completion (`tk add-note <ticketId> "DONE: <summary>"` + `tk close <ticketId>`)
+5. Report blockers (`tk add-note <ticketId> "BLOCKED: <reason>"`)
+
+### 4. Leader Polling
+
+The leader polls all active workers at a configurable interval (default 1s, env `PI_TEAMS_POLL_INTERVAL_MS`). Each poll cycle, for each non-terminal worker:
+
+1. Check if **process is alive** (`kill -0 <pid>`)
+2. Read **ticket state** (`tk show <ticketId>`) — parses status and notes
+3. Read **session activity** (last entry timestamp from worker's session file)
+4. Compute **poll events** and **state transitions**
+
+### 5. State Transitions
+
+Workers have the following statuses:
+
+```
+spawning → running → done
+                  → failed
+                  → killed
+```
+
+| Current    | Condition                          | Next      |
+|------------|-------------------------------------|-----------|
+| `spawning` | Process alive, ticket open          | `running` |
+| `running`  | Ticket closed/done                  | `done`    |
+| `running`  | Process dead + exit code 0          | `done`    |
+| `running`  | Process dead + non-zero exit        | `failed`  |
+| `running`  | `kill` action from leader           | `killed`  |
+| `running`  | Idle > 5 minutes                    | emits `stuck` event (stays `running`) |
+
+Terminal states (`done`, `failed`, `killed`) are absorbing — no further transitions occur.
+
+**Special case: process exits but ticket still open.** The leader closes the ticket on the worker's behalf, then marks the worker `done` (exit code 0) or `failed` (non-zero).
+
+### 6. Poll Events
+
+Each poll cycle can emit these events:
+
+| Event       | Trigger                                  | Leader Action                        |
+|-------------|------------------------------------------|--------------------------------------|
+| `completed` | Ticket transitions to closed/done        | Notifies LLM, cleans up worker       |
+| `failed`    | Process dies unexpectedly                | Notifies LLM, cleans up worker       |
+| `comment`   | New ticket notes since last seen         | Forwards to LLM (if `showComments`)  |
+| `stuck`     | No activity for >5 min (`STUCK_THRESHOLD_MS`) | Warns LLM                      |
+| `alive`     | Worker is healthy                        | (informational only)                 |
+
+On `completed` or `failed`, the leader also sends a `sendUserMessage` follow-up to reactivate the agent for orchestration.
+
+### 7. Cleanup
+
+When a worker reaches a terminal state, `cleanupWorker()` runs:
+
+1. **Kill process** — SIGTERM, then SIGKILL after 5s if still alive
+2. **Remove worktree** — `git worktree remove <path> --force` + `git branch -D <branch>`
+3. **Remove session directory** — unless `PI_TEAMS_KEEP_WORKER_SESSIONS=1`
+
+### 8. Session Shutdown
+
+On `session_shutdown`, the leader stops polling and kills all remaining workers (`killAll`), triggering full cleanup for each.
+
+## Ticket Interaction Summary
+
+| Actor   | Operation                             | When                          |
+|---------|---------------------------------------|-------------------------------|
+| Leader  | `tk create ... --tags team -a <name>` | Delegation                    |
+| Leader  | `tk start <id>`                       | Delegation                    |
+| Worker  | `tk show <id>`                        | On startup (reads assignment) |
+| Worker  | `tk add-note <id> "progress"`         | During execution              |
+| Worker  | `tk add-note <id> "DONE: ..."`        | On completion                 |
+| Worker  | `tk close <id>`                       | On completion                 |
+| Leader  | `tk show <id>`                        | Every poll cycle              |
+| Leader  | `tk close <id>`                       | If worker dies without closing |
+
+## Sequence Diagram
+
+```
+Leader                          Worker Process              Ticket System
+  │                                                              │
+  ├─ tk create + tk start ─────────────────────────────────────►│ status: in_progress
+  ├─ spawn pi --non-interactive ──►│                             │
+  │                                │                             │
+  │                                ├─ tk show ──────────────────►│ (read assignment)
+  │                                ├─ (does work)                │
+  │                                ├─ tk add-note "progress" ──►│ (note added)
+  │                                │                             │
+  ├─ poll: tk show ────────────────────────────────────────────►│ (reads notes)
+  ├─ (emits comment event to LLM) │                             │
+  │                                │                             │
+  │                                ├─ tk add-note "DONE:..." ──►│ (note added)
+  │                                ├─ tk close ─────────────────►│ status: closed
+  │                                ├─ (process exits)            │
+  │                                                              │
+  ├─ poll: tk show ────────────────────────────────────────────►│ (sees closed)
+  ├─ (emits completed event)       │                             │
+  ├─ cleanup (worktree, session)   │                             │
+  │                                                              │
+```
