@@ -140,14 +140,9 @@ const splitArgs = (input: string): string[] => {
 		}
 
 		if (char === "\\" && quote !== "'") {
-			if (quote === '"') {
-				// Inside double quotes: standard shell escape (consume backslash)
-				escape = true;
-			} else {
-				// Outside quotes: preserve backslash (for regex etc.)
-				current += "\\";
-				escape = true;
-			}
+			// Always preserve backslash (needed for regex patterns like \w, \()
+			current += "\\";
+			escape = true;
 			continue;
 		}
 
