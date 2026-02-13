@@ -85,10 +85,19 @@ export default function (pi: ExtensionAPI) {
 
 	// If the agent ended and we *did* get an assistant message after the last tool result,
 	// cancel the nudge. Otherwise keep the timer so we can prod the model.
+	// Also cancel if the user aborted — never auto-continue after an abort.
 	pi.on("agent_end", (event, ctx) => {
 		try {
 			const msgs = (event as any)?.messages as any[] | undefined;
 			if (!Array.isArray(msgs)) return;
+
+			// If the user aborted, never nudge
+			const wasAborted = msgs.some((m) => m?.role === "assistant" && (m as any).stopReason === "aborted");
+			if (wasAborted) {
+				clearTimer();
+				return;
+			}
+
 			const hasAssistantAfterTool = msgs.some((m) => {
 				if (!m || m.role !== "assistant") return false;
 				const ts = Number(m.timestamp ?? 0) || 0;

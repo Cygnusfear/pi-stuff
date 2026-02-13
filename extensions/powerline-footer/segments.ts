@@ -186,7 +186,7 @@ const thinkingSegment: StatusLineSegment = {
       low: "balls",
       medium: "med",
       high: "high",
-      xhigh: "xhigh",
+      xhigh: "ultrathink",
     };
     const label = levelText[level] || level;
     const content = `🧠 ${label}`;

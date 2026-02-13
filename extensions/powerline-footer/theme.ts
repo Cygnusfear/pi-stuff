@@ -140,7 +140,7 @@ export function fg(
  */
 export function rainbow(text: string): string {
   let result = "";
-  let colorIndex = 0;
+  let colorIndex = 3;
   for (const char of text) {
     if (char === " " || char === ":") {
       result += char;
