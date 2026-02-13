@@ -13,6 +13,8 @@ jobs:
     runs-on: host
     steps:
       - uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          token: ${{ secrets.FORGEJO_TOKEN }}
 
       - name: Push sync (tickets → issues)
         if: github.event_name == 'push'
