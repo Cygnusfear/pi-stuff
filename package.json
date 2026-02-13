@@ -1,6 +1,5 @@
 {
   "name": "pi-extensions",
-  "private": true,
   "type": "module",
   "keywords": [
     "pi-package"
@@ -11,9 +10,6 @@
     ],
     "prompts": [
       "./prompts"
-    ],
-    "skills": [
-      "./skills"
     ]
   },
   "dependencies": {

@@ -30,7 +30,7 @@ const NERD_COLORS: ColorScheme = {
   pi: "accent",
   model: "accent",
   path: "success",
-  tokens: "primary",
+  tokens: "accent",
   cost: "warning",
 };
 
