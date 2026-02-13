@@ -16,11 +16,11 @@ import type { ColorScheme, ColorValue, SemanticColor } from "./types.js";
 // Default color scheme (uses pi theme colors)
 const DEFAULT_COLORS: Required<ColorScheme> = {
   pi: "accent",
-  model: "#7D56F4", // Pink/mauve (matching original colors.ts)
-  path: "#7D56F4", // Teal/cyan (matching original colors.ts)
-  git: "success",
+  model: "dim",
+  path: "success",
+  git: "dim",
   gitDirty: "warning",
-  gitClean: "success",
+  gitClean: "dim",
   thinking: "muted",
   thinkingHigh: "accent",
   context: "dim",
@@ -31,6 +31,29 @@ const DEFAULT_COLORS: Required<ColorScheme> = {
   separator: "dim",
   border: "borderMuted",
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ANSI utilities (used by index.ts for segment separators)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface AnsiColors {
+  getBgAnsi(r: number, g: number, b: number): string;
+  getFgAnsi(r: number, g: number, b: number): string;
+  getFgAnsi256(code: number): string;
+  reset: string;
+}
+
+export const ansi: AnsiColors = {
+  getBgAnsi: (r, g, b) => `\x1b[48;2;${r};${g};${b}m`,
+  getFgAnsi: (r, g, b) => `\x1b[38;2;${r};${g};${b}m`,
+  getFgAnsi256: (code) => `\x1b[38;5;${code}m`,
+  reset: "\x1b[0m",
+};
+
+/** Get ANSI foreground code for the separator color (ANSI 256 gray 244) */
+export function getFgAnsiCode(_color: "sep"): string {
+  return ansi.getFgAnsi256(244);
+}
 
 // Rainbow colors for high thinking levels
 const RAINBOW_COLORS = [

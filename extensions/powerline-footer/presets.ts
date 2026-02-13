@@ -14,16 +14,6 @@ const MINIMAL_COLORS: ColorScheme = {
   gitClean: "dim",
 };
 
-// Minimal - more muted, less colorful
-const WERNER_COLORS: ColorScheme = {
-  ...DEFAULT_COLORS,
-  pi: "accent",
-  model: "dim",
-  path: "success",
-  git: "dim",
-  gitClean: "dim",
-};
-
 // Nerd - vibrant colors
 const NERD_COLORS: ColorScheme = {
   ...DEFAULT_COLORS,
@@ -40,7 +30,7 @@ export const PRESETS: Record<StatusLinePreset, PresetDef> = {
     rightSegments: [],
     secondarySegments: ["extension_statuses"],
     separator: "dot",
-    colors: WERNER_COLORS,
+    colors: DEFAULT_COLORS,
     segmentOptions: {
       model: { showThinkingLevel: false },
       path: { mode: "basename" },

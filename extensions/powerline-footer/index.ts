@@ -1,32 +1,14 @@
 import type { ExtensionAPI, ReadonlyFooterDataProvider, Theme } from "@mariozechner/pi-coding-agent";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { visibleWidth } from "@mariozechner/pi-tui";
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+
 
 import type { ColorScheme, SegmentContext, StatusLinePreset, StatusLineSegmentId } from "./types.js";
 import { getPreset, PRESETS } from "./presets.js";
 import { getSeparator } from "./separators.js";
 import { renderSegment } from "./segments.js";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./git-status.js";
-import { ansi, getFgAnsiCode } from "./colors.js";
-import { getDefaultColors } from "./theme.js";
-import { 
-  initVibeManager, 
-  onVibeBeforeAgentStart, 
-  onVibeAgentStart, 
-  onVibeAgentEnd,
-  onVibeToolCall,
-  getVibeTheme,
-  setVibeTheme,
-  getVibeModel,
-  setVibeModel,
-  getVibeMode,
-  setVibeMode,
-  hasVibeFile,
-  getVibeFileCount,
-  generateVibesBatch,
-} from "./working-vibes.js";
+import { getDefaultColors, ansi, getFgAnsiCode } from "./theme.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Configuration
@@ -39,21 +21,6 @@ interface PowerlineConfig {
 let config: PowerlineConfig = {
   preset: "default",
 };
-
-// Check if quietStartup is enabled in settings
-function isQuietStartup(): boolean {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-  const settingsPath = join(homeDir, ".pi", "agent", "settings.json");
-  
-  try {
-    if (existsSync(settingsPath)) {
-      const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-      return settings.quietStartup === true;
-    }
-  } catch {}
-  
-  return false;
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Status Line Builder
@@ -156,9 +123,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   let getThinkingLevelFn: (() => string) | null = null;
   let isStreaming = false;
   let tuiRef: any = null; // Store TUI reference for forcing re-renders
-  let dismissWelcomeOverlay: (() => void) | null = null; // Callback to dismiss welcome overlay
-  let welcomeHeaderActive = false; // Track if welcome header should be cleared on first input
-  let welcomeOverlayShouldDismiss = false; // Track early dismissal request (before overlay setup completes)
   
   // Cache for responsive layout (shared between editor and widget for consistency)
   let lastLayoutWidth = 0;
@@ -175,17 +139,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       getThinkingLevelFn = () => ctx.getThinkingLevel();
     }
     
-    // Initialize vibe manager (needs modelRegistry from ctx)
-    initVibeManager(ctx);
-    
     if (enabled && ctx.hasUI) {
       setupCustomEditor(ctx);
-      // quietStartup: true → compact header, otherwise → full overlay
-      if (isQuietStartup()) {
-        setupWelcomeHeader(ctx);
-      } else {
-        setupWelcomeOverlay(ctx);
-      }
     }
   });
 
@@ -231,82 +186,13 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     }
   });
 
-  // Generate themed working message before agent starts (has access to user's prompt)
-  pi.on("before_agent_start", async (event, ctx) => {
-    if (ctx.hasUI) {
-      onVibeBeforeAgentStart(event.prompt, ctx.ui.setWorkingMessage);
-    }
-  });
-
-  // Track streaming state (footer only shows status during streaming)
-  // Also dismiss welcome when agent starts responding (handles `p "command"` case)
-  pi.on("agent_start", async (_event, ctx) => {
+  // Track streaming state
+  pi.on("agent_start", async (_event, _ctx) => {
     isStreaming = true;
-    onVibeAgentStart();
-    dismissWelcome(ctx);
   });
 
-  // Also dismiss on tool calls (agent is working) + refresh vibe if rate limit allows
-  pi.on("tool_call", async (event, ctx) => {
-    dismissWelcome(ctx);
-    if (ctx.hasUI) {
-      // Extract recent agent context from session for richer vibe generation
-      const agentContext = getRecentAgentContext(ctx);
-      onVibeToolCall(event.toolName, event.input, ctx.ui.setWorkingMessage, agentContext);
-    }
-  });
-  
-  // Helper to extract recent agent response text (skipping thinking blocks)
-  function getRecentAgentContext(ctx: any): string | undefined {
-    const sessionEvents = ctx.sessionManager?.getBranch?.() ?? [];
-    
-    // Find the most recent assistant message
-    for (let i = sessionEvents.length - 1; i >= 0; i--) {
-      const e = sessionEvents[i];
-      if (e.type === "message" && e.message?.role === "assistant") {
-        const content = e.message.content;
-        if (!Array.isArray(content)) continue;
-        
-        // Extract text content, skip thinking blocks
-        for (const block of content) {
-          if (block.type === "text" && block.text) {
-            // Return first ~200 chars of non-empty text
-            const text = block.text.trim();
-            if (text.length > 0) {
-              return text.slice(0, 200);
-            }
-          }
-        }
-      }
-    }
-    return undefined;
-  }
-
-  // Helper to dismiss welcome overlay/header
-  function dismissWelcome(ctx: any) {
-    if (dismissWelcomeOverlay) {
-      dismissWelcomeOverlay();
-      dismissWelcomeOverlay = null;
-    } else {
-      // Overlay not set up yet (100ms delay) - mark for immediate dismissal when it does
-      welcomeOverlayShouldDismiss = true;
-    }
-    if (welcomeHeaderActive) {
-      welcomeHeaderActive = false;
-      ctx.ui.setHeader(undefined);
-    }
-  }
-
-  pi.on("agent_end", async (_event, ctx) => {
+  pi.on("agent_end", async (_event, _ctx) => {
     isStreaming = false;
-    if (ctx.hasUI) {
-      onVibeAgentEnd(ctx.ui.setWorkingMessage); // working-vibes internal state + reset message
-    }
-  });
-
-  // Dismiss welcome overlay/header on first user message
-  pi.on("user_message", async (_event, ctx) => {
-    dismissWelcome(ctx);
   });
 
   // Command to toggle/configure
@@ -354,107 +240,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       // Show available presets
       const presetList = Object.keys(PRESETS).join(", ");
       ctx.ui.notify(`Available presets: ${presetList}`, "info");
-    },
-  });
-
-  // Command to set working message theme
-  pi.registerCommand("vibe", {
-    description: "Set working message theme. Usage: /vibe [theme|off|mode|model|generate]",
-    handler: async (args, ctx) => {
-      const parts = args?.trim().split(/\s+/) || [];
-      const subcommand = parts[0]?.toLowerCase();
-      
-      // No args: show current status
-      if (!args || !args.trim()) {
-        const theme = getVibeTheme();
-        const mode = getVibeMode();
-        const model = getVibeModel();
-        let status = `Vibe: ${theme || "off"} | Mode: ${mode} | Model: ${model}`;
-        if (theme && mode === "file") {
-          const count = getVibeFileCount(theme);
-          status += count > 0 ? ` | File: ${count} vibes` : " | File: not found";
-        }
-        ctx.ui.notify(status, "info");
-        return;
-      }
-      
-      // /vibe model [spec] - show or set model
-      if (subcommand === "model") {
-        const modelSpec = parts.slice(1).join(" ");
-        if (!modelSpec) {
-          ctx.ui.notify(`Current vibe model: ${getVibeModel()}`, "info");
-          return;
-        }
-        // Validate format (provider/modelId)
-        if (!modelSpec.includes("/")) {
-          ctx.ui.notify("Invalid model format. Use: provider/modelId (e.g., anthropic/claude-haiku-4-5)", "error");
-          return;
-        }
-        setVibeModel(modelSpec);
-        ctx.ui.notify(`Vibe model set to: ${modelSpec}`, "info");
-        return;
-      }
-      
-      // /vibe mode [generate|file] - show or set mode
-      if (subcommand === "mode") {
-        const newMode = parts[1]?.toLowerCase();
-        if (!newMode) {
-          ctx.ui.notify(`Current vibe mode: ${getVibeMode()}`, "info");
-          return;
-        }
-        if (newMode !== "generate" && newMode !== "file") {
-          ctx.ui.notify("Invalid mode. Use: generate or file", "error");
-          return;
-        }
-        // Check if file exists when switching to file mode
-        const theme = getVibeTheme();
-        if (newMode === "file" && theme && !hasVibeFile(theme)) {
-          ctx.ui.notify(`No vibe file for "${theme}". Run /vibe generate ${theme} first`, "error");
-          return;
-        }
-        setVibeMode(newMode);
-        ctx.ui.notify(`Vibe mode set to: ${newMode}`, "info");
-        return;
-      }
-      
-      // /vibe generate <theme> [count] - generate vibes and save to file
-      if (subcommand === "generate") {
-        const theme = parts[1];
-        const count = parseInt(parts[2]) || 100;
-        
-        if (!theme) {
-          ctx.ui.notify("Usage: /vibe generate <theme> [count]", "error");
-          return;
-        }
-        
-        ctx.ui.notify(`Generating ${count} vibes for "${theme}"...`, "info");
-        
-        const result = await generateVibesBatch(theme, count);
-        
-        if (result.success) {
-          ctx.ui.notify(`Generated ${result.count} vibes for "${theme}" → ${result.filePath}`, "info");
-        } else {
-          ctx.ui.notify(`Failed to generate vibes: ${result.error}`, "error");
-        }
-        return;
-      }
-      
-      // /vibe off - disable
-      if (subcommand === "off") {
-        setVibeTheme(null);
-        ctx.ui.notify("Vibe disabled", "info");
-        return;
-      }
-      
-      // /vibe <theme> - set theme (preserve original casing)
-      setVibeTheme(args.trim());
-      const mode = getVibeMode();
-      const theme = args.trim();
-      if (mode === "file" && !hasVibeFile(theme)) {
-        ctx.ui.notify(`Vibe set to: ${theme} (file mode, but no file found - run /vibe generate ${theme})`, "warning");
-      } else {
-        ctx.ui.notify(`Vibe set to: ${theme}`, "info");
-      }
     },
   });
 
@@ -566,8 +351,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
             currentEditor?.handleInput(data);
             return;
           }
-          // Dismiss welcome overlay/header (use setTimeout to avoid re-entrancy)
-          setTimeout(() => dismissWelcome(ctx), 0);
           originalHandleInput(data);
         };
         
@@ -720,13 +503,4 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     });
   }
 
-  function setupWelcomeHeader(_ctx: any) {
-    // Welcome UI intentionally disabled.
-    return;
-  }
-
-  function setupWelcomeOverlay(_ctx: any) {
-    // Welcome UI intentionally disabled.
-    return;
-  }
 }
