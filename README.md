@@ -2,13 +2,13 @@
 
 Extensions, prompts, and themes for [pi](https://github.com/badlogic/pi-mono) — a coding agent TUI.
 
-## Setup
+## Install
 
 ```bash
-npm install
+pi install https://github.com/cygnusfear/pi-stuff
 ```
 
-Skills live in a separate repo: [agent-skills](https://github.com/cygnusfear/agent-skills).
+Updates with `pi update`. Skills live in a separate repo: [agent-skills](https://github.com/cygnusfear/agent-skills).
 
 ## Extensions
 
