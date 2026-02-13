@@ -171,6 +171,7 @@ export class TeamLeader {
 					const isSuccess = exitCode === 0;
 
 					worker.status = isSuccess ? "done" : "failed";
+					worker.ticketStatus = "closed";
 					worker.lastActivityAt = Date.now();
 
 					if (isSuccess) {
@@ -198,6 +199,7 @@ export class TeamLeader {
 
 				for (const event of events) {
 					worker.status = event.worker.status;
+					worker.ticketStatus = ticket.status;
 					worker.lastActivityAt = Date.now();
 
 					if (event.type === "comment") {
