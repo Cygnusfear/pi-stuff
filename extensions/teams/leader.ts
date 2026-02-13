@@ -297,13 +297,10 @@ export class TeamLeader {
 				content: msg,
 				display: true,
 			},
-			{ deliverAs: "followUp" },
+			{ deliverAs: "followUp", triggerTurn: true },
 		);
 
-		// Reactivate the agent on terminal events so leader can continue orchestration.
-		if (event.type === "completed" || event.type === "failed") {
-			this.pi.sendUserMessage(`[team] ${event.worker.name} finished — check results above`, { deliverAs: "followUp" });
-		}
+
 	}
 }
 
