@@ -188,9 +188,9 @@ export class TeamLeader {
 					}
 
 					await cleanupWorker(this.ctx.cwd, worker);
-					this.workers.delete(name);
 					this.childProcesses.delete(name);
 					this.processExitQueue.delete(name);
+					// Keep worker in map so widget shows final status
 					continue;
 				}
 
@@ -208,9 +208,9 @@ export class TeamLeader {
 
 					if (event.type === "completed" || event.type === "failed") {
 						await cleanupWorker(this.ctx.cwd, worker);
-						this.workers.delete(name);
 						this.childProcesses.delete(name);
 						this.processExitQueue.delete(name);
+						// Keep worker in map so widget shows final status
 						break;
 					}
 				}
@@ -223,7 +223,7 @@ export class TeamLeader {
 
 		// Stop polling if no active workers remain
 		const hasActive = [...this.workers.values()].some((w) => !["done", "failed", "killed"].includes(w.status));
-		if (!hasActive && this.workers.size === 0) {
+		if (!hasActive) {
 			this.stopPolling();
 		}
 		this.renderWidget();

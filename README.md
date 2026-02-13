@@ -1,4 +1,4 @@
-# pi-stuff
+# pi-stuff / werner
 
 Extensions, prompts, and themes for [pi](https://github.com/badlogic/pi-mono) — a coding agent TUI.
 
@@ -12,34 +12,36 @@ Updates with `pi update`. Skills live in a separate repo: [agent-skills](https:/
 
 ## Extensions
 
-### Core tools
+### Core kit
 
-| Extension | What it does |
-|-----------|-------------|
-| `file-tools.ts` | `rg`, `fd`, and `Glob` tools with working directory support |
-| `hashline-tools.ts` | Line-anchored file editing — stable hashes prevent stale edits |
-| `core-read-ui.ts` | Enhanced `read` tool with image support and truncation |
-| `webfetch.ts` | Fetch URLs as text, markdown, or HTML |
-| `todos-tk.ts` | Ticket management via `tk` — create, list, comment, complete |
-| `skills.ts` | `/skills:install`, `/skills:update`, `/skills:list`, `/skills:remove` commands |
+Workflow relies heavily on the use of [tk](https://github.com/wedow/ticket) as the main driver of inter-agent communication, coordination, task management, and archiving. Oracle & Delphi skills use `teams`, which in turns relies on `tk` for coordination.
 
-### Workflow
+| Extension     | What it does                                                                          |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `teams`       | Spawn parallel worker agents with git worktree isolation, using `tk` for coordination |
+| `todos-tk.ts` | Ticket management via `tk` — create, list, comment, complete                          |
 
-| Extension | What it does |
-|-----------|-------------|
-| `teams/` | Spawn parallel worker agents with git worktree isolation |
-| `auto-continue.ts` | Auto-continue when the agent hits output limits |
-| `git-safety.ts` | Guard against destructive git operations |
-| `worktree-summaries.ts` | Summarize work done in git worktrees |
+### Tools
+
+| Extension               | What it does                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `skills.ts`             | `/skills:install`, `/skills:update`, `/skills:list`, `/skills:remove` commands |
+| `file-tools.ts`         | `rg`, `fd`, and `Glob` tools with working directory support                    |
+| `hashline-tools.ts`     | Line-anchored file editing — stable hashes prevent stale edits                 |
+| `core-read-ui.ts`       | Enhanced `read` tool with image support and truncation                         |
+| `webfetch.ts`           | Fetch URLs as text, markdown, or HTML                                          |
+| `auto-continue.ts`      | Auto-continue when the agent hits output limits                                |
+| `git-safety.ts`         | Guard against destructive git operations                                       |
+| `worktree-summaries.ts` | Summarize work done in git worktrees                                           |
 
 ### UI
 
-| Extension | What it does |
-|-----------|-------------|
-| `powerline-footer/` | Powerline-style status bar — model, tokens, cost, git, context usage |
-| `context.ts` | Context window viewer — token breakdown, session stats, AGENTS.md sizes |
-| `notify.ts` | Desktop notifications on task completion |
-| `defaults/` | Theme selector, system prompt viewer, project init wizard, session naming |
+| Extension           | What it does                                                              |
+| ------------------- | ------------------------------------------------------------------------- |
+| `powerline-footer/` | Powerline-style status bar — model, tokens, cost, git, context usage      |
+| `context.ts`        | Context window viewer — token breakdown, session stats, AGENTS.md sizes   |
+| `notify.ts`         | Desktop notifications on task completion                                  |
+| `defaults/`         | Theme selector, system prompt viewer, project init wizard, session naming |
 
 ## Prompts
 
@@ -48,6 +50,41 @@ Updates with `pi update`. Skills live in a separate repo: [agent-skills](https:/
 ## Themes
 
 - `themes/lipgloss.json` — Custom color theme
+
+## Provenance & Credits
+
+Standing on the shoulders of giants — and occasionally raiding their repos.
+
+### Core
+
+| Project | What we owe them |
+| ------- | ---------------- |
+| [badlogic/pi-mono](https://github.com/badlogic/pi-mono) | Pi itself — the coding agent TUI framework everything here extends |
+| [wedow/ticket](https://github.com/wedow/ticket) (`tk`) | Ticket system that drives our entire workflow: task management, inter-agent coordination, archiving |
+
+### Hashline editing — [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)
+
+**Can Bölük** invented hashline editing. Every line is tagged with a short content hash (`11:a3|function hello() {`), and edits reference anchors instead of reproducing content. If the file changed since last read, hashes mismatch and the edit is safely rejected.
+
+His [benchmark](https://blog.can.ac/2026/02/12/the-harness-problem/) across 16 models showed hashline matches or beats `str_replace` and `apply_patch` for nearly every model — Grok Code Fast went from 6.7% → 68.3% just by changing the edit format. Our `hashline-tools.ts` is directly from his implementation.
+
+### Subagents — [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)
+
+Can also built [`@oh-my-pi/subagents`](https://npmjs.com/package/@oh-my-pi/subagents) — a task delegation system with specialized agents (task, planner, explore, reviewer, browser) and structured output. Our `teams/` extension reimplements this concept around `tk` tickets and git worktree isolation.
+
+### Agent prompts — [mitsuhiko/agent-prompts](https://github.com/mitsuhiko/agent-prompts)
+
+**Armin Ronacher** (creator of Flask) maintains specialized prompt systems for agentic coding workflows. His [talk](https://speakerdeck.com/mitsuhiko/agentic-coding-the-future-of-software-development-with-agents) and [video](https://www.youtube.com/watch?v=ANQ1IYsFM2s) on building with Pi informed our prompt and role patterns.
+
+### UI & extensions
+
+| Project | What we took |
+| ------- | ------------ |
+| [anomalyco/opencode](https://github.com/anomalyco/opencode) | The `apply_patch` diff format (originally from OpenAI Codex), agent markdown patterns, and general TUI coding agent design |
+| [charmbracelet/lipgloss](https://github.com/charmbracelet/lipgloss) | Theme system and color palette |
+| [nicobailon/pi-powerline-footer](https://github.com/nicobailon/pi-powerline-footer) | Powerline status bar — vendored and extended |
+| [romkatv/powerlevel10k](https://github.com/romkatv/powerlevel10k) | Powerline design language and Nerd Font auto-detection |
+| [@aliou/pi-defaults](https://www.npmjs.com/package/@aliou/pi-utils-settings) | Settings system, UI utilities, theme selector, project init wizard |
 
 ## License
 
