@@ -12,24 +12,33 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: host
     steps:
-      - uses: https://code.forgejo.org/actions/checkout@v4
-        with:
-          token: ${{ secrets.FORGEJO_TOKEN }}
+      - name: Checkout via token auth
+        run: |
+          WORKDIR="/tmp/tk-sync-$$"
+          rm -rf "$WORKDIR"
+          git clone --depth 1 \
+            "https://token:${{ secrets.FORGEJO_TOKEN }}@git.satsang.xyz/${{ github.repository }}.git" \
+            "$WORKDIR"
+          echo "WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
 
       - name: Push sync (tickets → issues)
         if: github.event_name == 'push'
         run: |
-          cd ${{ github.workspace }}
-          FORGEJO_URL="${{ github.server_url }}" \
+          cd "$WORKDIR"
+          FORGEJO_URL="https://git.satsang.xyz" \
           FORGEJO_TOKEN="${{ secrets.FORGEJO_TOKEN }}" \
           REPO="${{ github.repository }}" \
-          REPO_DIR="${{ github.workspace }}" \
+          REPO_DIR="$WORKDIR" \
           bun run .forgejo/sync/push-sync.ts
 
       - name: Webhook sync (issues → tickets)
         if: github.event_name == 'issues' || github.event_name == 'issue_comment'
         run: |
-          cd ${{ github.workspace }}
+          cd "$WORKDIR"
           echo '${{ toJSON(github.event) }}' | \
-          REPO_DIR="${{ github.workspace }}" \
+          REPO_DIR="$WORKDIR" \
           bun run .forgejo/sync/webhook.ts
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$WORKDIR"
