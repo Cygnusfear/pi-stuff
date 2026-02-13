@@ -18,7 +18,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerMessageRenderer("team-event", (message, _options, theme) => {
 		const content = typeof message.content === "string" ? message.content : "";
 		const header = theme.fg("accent", theme.bold("[team-event]"));
-		return new Text(`${header}\n${content}`, 0, 0);
+		return new Text(`${header}\n\n${content}`, 0, 0);
 	});
 	pi.registerCommand("team", {
 		description: "Team control: /team list | /team kill <name> | /team kill_all | /team delegate <worker>:<task> | /team thinking",
