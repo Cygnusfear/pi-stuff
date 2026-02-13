@@ -223,8 +223,8 @@ export class TeamLeader {
 						break;
 					}
 				}
-			} catch {
-				// Polling error; skip, try next cycle
+			} catch (err) {
+				console.error(`[teams] poll error for worker ${name}:`, err);
 			}
 		}
 
@@ -291,14 +291,19 @@ export class TeamLeader {
 		}
 
 		const msg = formatPollEvent(event);
-		this.pi.sendMessage(
-			{
-				customType: "team-event",
-				content: msg,
-				display: true,
-			},
-			{ deliverAs: "followUp", triggerTurn: true },
-		);
+		try {
+			this.pi.sendMessage(
+				{
+					customType: "team-event",
+					content: msg,
+					display: true,
+				},
+				{ deliverAs: "followUp", triggerTurn: true },
+			);
+		} catch (err) {
+			// Log but don't swallow — this helps debug missing notifications
+			console.error(`[teams] notifyLLM failed for ${event.type}/${event.worker.name}:`, err);
+		}
 
 
 	}
