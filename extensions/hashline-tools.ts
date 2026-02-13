@@ -1,7 +1,10 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
+import { renderToolResult } from "./lib/tool-ui-utils";
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 // Hashline format: "<line>:<hash>|<content>"
@@ -167,6 +170,9 @@ export default function (pi: ExtensionAPI) {
 		label: "Hash Read",
 		description: HASHLINE_TOOL_DESCRIPTION,
 		parameters: HashReadParams,
+		renderResult(result, options, theme) {
+			return renderToolResult(result, !!options.expanded, theme);
+		},
 		async execute(_toolCallId, params: HashReadParamsType, _signal, _onUpdate, ctx) {
 			const fullPath = path.resolve(ctx.cwd, params.path);
 			const content = await fs.readFile(fullPath, "utf-8");
@@ -184,21 +190,46 @@ export default function (pi: ExtensionAPI) {
 		label: "Hash Edit",
 		description: HASHLINE_TOOL_DESCRIPTION,
 		parameters: HashEditParams,
+		renderResult(result, options, theme) {
+			return renderToolResult(result, !!options.expanded, theme);
+		},
 		async execute(_toolCallId, params: HashEditParamsType, _signal, _onUpdate, ctx) {
 			const fullPath = path.resolve(ctx.cwd, params.path);
 			const before = await fs.readFile(fullPath, "utf-8");
 			const { updated, appliedEdits } = applyEditsToText(before, params.edits as unknown as HashlineEdit[]);
-			if (updated !== before) {
+			const changed = updated !== before;
+			let diffText = "";
+			if (changed) {
+				// Generate unified diff before writing
+				const tmpDir = os.tmpdir();
+				const tmpBefore = path.join(tmpDir, `hash_edit_before_${Date.now()}`);
+				const tmpAfter = path.join(tmpDir, `hash_edit_after_${Date.now()}`);
+				try {
+					await fs.writeFile(tmpBefore, before, "utf-8");
+					await fs.writeFile(tmpAfter, updated, "utf-8");
+					diffText = execFileSync(
+						"diff",
+						["-u", "--label", `a/${params.path}`, "--label", `b/${params.path}`, tmpBefore, tmpAfter],
+						{ encoding: "utf-8", timeout: 5000 },
+					);
+				} catch (e: any) {
+					// diff exits 1 when files differ — that's expected
+					if (e.stdout) diffText = e.stdout;
+				} finally {
+					await fs.unlink(tmpBefore).catch(() => {});
+					await fs.unlink(tmpAfter).catch(() => {});
+				}
 				await fs.writeFile(fullPath, updated, "utf-8");
 			}
+			const summary = `Applied ${appliedEdits} edit(s) to ${params.path}.`;
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Applied ${appliedEdits} edit(s) to ${params.path}.`,
+						text: diffText ? `${summary}\n\n${diffText}` : summary,
 					},
 				],
-				details: { path: fullPath, appliedEdits, changed: updated !== before },
+				details: { path: fullPath, appliedEdits, changed },
 			};
 		},
 	});

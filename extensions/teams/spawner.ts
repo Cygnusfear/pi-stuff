@@ -36,7 +36,7 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 	const child = spawn("pi", ["--non-interactive", "--session-dir", sessionDir, "-p", buildWorkerPrompt(config.ticketId, config.workerName)], {
 		cwd: config.cwd,
 		env,
-		stdio: ["ignore", "pipe", "pipe"],
+		stdio: "ignore",
 		detached: false,
 	});
 
