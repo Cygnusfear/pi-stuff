@@ -57,6 +57,13 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 		lastSeenCommentCount: 0,
 	};
 
+	// Debug: verify events fire from spawner context
+	const debugPath = require("path").join(config.cwd, `.pi-spawn-debug-${config.workerName}.log`);
+	require("fs").writeFileSync(debugPath, `spawned pid=${child.pid} at ${new Date().toISOString()}\n`);
+	child.on("exit", (code: number | null) => {
+		require("fs").appendFileSync(debugPath, `exit code=${code} at ${new Date().toISOString()}\n`);
+	});
+
 	return { process: child, handle };
 }
 
