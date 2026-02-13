@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+#
+# videx - Video frame extraction for Claude analysis
+#
+# Usage:
+#   videx overview <video>                    # Quick thumbnails, 10s intervals, 320px
+#   videx range <video> <start>-<end>         # Frames from range, 2fps, 720px
+#   videx range <video> <start>-<end> --fps=N # Custom fps
+#   videx zoom <video> <time>                 # Single frame, 1080px
+#   videx zoom <video> <time> --hd            # Single frame, full resolution
+#
+# Output: Creates timestamped frames in ./videx-out/<video-basename>/
+#
+# Time formats: 1:30, 01:30, 1:30.5, 90 (seconds)
+
+set -euo pipefail
+
+die() { echo "error: $*" >&2; exit 1; }
+
+# Normalize time to seconds (handles 1:30, 01:30:00, 90, etc.)
+time_to_seconds() {
+    local t="$1"
+    if [[ "$t" =~ ^([0-9]+):([0-9]+):([0-9.]+)$ ]]; then
+        echo "$(( ${BASH_REMATCH[1]} * 3600 + ${BASH_REMATCH[2]} * 60 )) + ${BASH_REMATCH[3]}" | bc
+    elif [[ "$t" =~ ^([0-9]+):([0-9.]+)$ ]]; then
+        echo "$(( ${BASH_REMATCH[1]} * 60 )) + ${BASH_REMATCH[2]}" | bc
+    else
+        echo "$t"
+    fi
+}
+
+# Format seconds back to timestamp for filenames
+seconds_to_timestamp() {
+    local s="$1"
+    local h m sec
+    h=$(echo "$s / 3600" | bc)
+    m=$(echo "($s % 3600) / 60" | bc)
+    sec=$(echo "$s % 60" | bc)
+    printf "%02d-%02d-%05.2f" "$h" "$m" "$sec"
+}
+
+# Get video duration in seconds
+get_duration() {
+    ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$1" 2>/dev/null || echo "0"
+}
+
+cmd_overview() {
+    local video="$1"
+    local interval="${2:-10}"
+    local width="${3:-320}"
+
+    [[ -f "$video" ]] || die "video not found: $video"
+
+    local name=$(basename "${video%.*}")
+    local outdir="./videx-out/$name/overview"
+    mkdir -p "$outdir"
+
+    local duration=$(get_duration "$video")
+
+    echo "Extracting overview frames (${interval}s intervals, ${width}px)..."
+
+    ffmpeg -i "$video" \
+        -vf "fps=1/$interval,scale=$width:-1" \
+        -q:v 3 \
+        -vsync vfr \
+        "$outdir/frame_%04d.jpg" \
+        -y -loglevel error
+
+    # Rename with timestamps
+    local i=0
+    for f in "$outdir"/frame_*.jpg; do
+        [[ -f "$f" ]] || continue
+        local ts=$(seconds_to_timestamp $((i * interval)))
+        mv "$f" "$outdir/t_${ts}.jpg"
+        ((i++)) || true
+    done
+
+    local count=$(ls -1 "$outdir"/*.jpg 2>/dev/null | wc -l | tr -d ' ')
+    echo "Created $count frames in $outdir"
+    echo "$outdir"
+}
+
+cmd_range() {
+    local video="$1"
+    local range="$2"
+    local fps="${3:-2}"
+    local width="${4:-1280}"
+
+    [[ -f "$video" ]] || die "video not found: $video"
+    [[ "$range" =~ ^([^-]+)-(.+)$ ]] || die "invalid range format, use: start-end (e.g., 1:30-2:00)"
+
+    local start_time="${BASH_REMATCH[1]}"
+    local end_time="${BASH_REMATCH[2]}"
+    local start_sec=$(time_to_seconds "$start_time")
+    local end_sec=$(time_to_seconds "$end_time")
+    local duration=$(echo "$end_sec - $start_sec" | bc)
+
+    local name=$(basename "${video%.*}")
+    local range_safe="${start_time//:/-}_${end_time//:/-}"
+    local outdir="./videx-out/$name/range_${range_safe}"
+    mkdir -p "$outdir"
+
+    echo "Extracting range $start_time to $end_time (${fps}fps, ${width}px)..."
+
+    ffmpeg -ss "$start_sec" -i "$video" -t "$duration" \
+        -vf "fps=$fps,scale=$width:-1" \
+        -q:v 2 \
+        -vsync vfr \
+        "$outdir/frame_%04d.jpg" \
+        -y -loglevel error
+
+    # Rename with actual timestamps
+    local i=0
+    for f in "$outdir"/frame_*.jpg; do
+        [[ -f "$f" ]] || continue
+        local frame_sec=$(echo "$start_sec + ($i / $fps)" | bc -l)
+        local ts=$(seconds_to_timestamp "$frame_sec")
+        mv "$f" "$outdir/t_${ts}.jpg"
+        ((i++)) || true
+    done
+
+    local count=$(ls -1 "$outdir"/*.jpg 2>/dev/null | wc -l | tr -d ' ')
+    echo "Created $count frames in $outdir"
+    echo "$outdir"
+}
+
+cmd_zoom() {
+    local video="$1"
+    local time="$2"
+    local hd="${3:-}"
+
+    [[ -f "$video" ]] || die "video not found: $video"
+
+    local time_sec=$(time_to_seconds "$time")
+    local name=$(basename "${video%.*}")
+    local outdir="./videx-out/$name/zoom"
+    mkdir -p "$outdir"
+
+    local ts=$(seconds_to_timestamp "$time_sec")
+    local outfile="$outdir/t_${ts}.jpg"
+
+    local scale_filter=""
+    if [[ "$hd" != "--hd" ]]; then
+        scale_filter=",scale=1920:-1"
+    fi
+
+    echo "Extracting frame at $time..."
+
+    ffmpeg -ss "$time_sec" -i "$video" \
+        -vf "select=eq(n\,0)${scale_filter}" \
+        -q:v 1 \
+        -frames:v 1 \
+        "$outfile" \
+        -y -loglevel error
+
+    echo "Created: $outfile"
+    echo "$outfile"
+}
+
+cmd_help() {
+    cat << 'EOF'
+videx - Video frame extraction for Claude analysis
+
+USAGE:
+    videx <command> <video> [options]
+
+COMMANDS:
+    overview <video> [interval] [width]
+        Extract thumbnail frames at regular intervals
+        Default: 10s intervals, 320px width
+
+    range <video> <start-end> [--fps=N] [--width=N]
+        Extract frames from a time range
+        Default: 2fps, 1280px width
+        Example: videx range video.mp4 1:30-2:00 --fps=5
+
+    zoom <video> <time> [--hd]
+        Extract a single frame at specific timestamp
+        Default: 1920px width
+        --hd: Full resolution (no scaling)
+
+TIME FORMATS:
+    1:30      = 1 minute 30 seconds
+    01:30:00  = 1 hour 30 minutes
+    90        = 90 seconds
+    1:30.5    = 1 minute 30.5 seconds
+
+OUTPUT:
+    Frames saved to ./videx-out/<video-name>/<command>/
+    Files named with timestamps: t_HH-MM-SS.SS.jpg
+
+EXAMPLES:
+    videx overview talk.mp4                    # Quick scan
+    videx overview talk.mp4 5 480              # 5s intervals, 480px
+    videx range talk.mp4 10:00-12:30           # Extract 2.5min segment
+    videx range talk.mp4 10:00-12:30 --fps=10  # Higher temporal resolution
+    videx zoom talk.mp4 11:45                  # Single frame
+    videx zoom talk.mp4 11:45 --hd             # Full resolution
+EOF
+}
+
+# Parse arguments
+[[ $# -lt 1 ]] && { cmd_help; exit 0; }
+
+command="$1"
+shift
+
+case "$command" in
+    overview)
+        [[ $# -lt 1 ]] && die "usage: videx overview <video> [interval] [width]"
+        cmd_overview "$1" "${2:-10}" "${3:-320}"
+        ;;
+    range)
+        [[ $# -lt 2 ]] && die "usage: videx range <video> <start-end> [--fps=N] [--width=N]"
+        video="$1"
+        range="$2"
+        shift 2
+        fps=2
+        width=1280
+        for arg in "$@"; do
+            case "$arg" in
+                --fps=*) fps="${arg#--fps=}" ;;
+                --width=*) width="${arg#--width=}" ;;
+            esac
+        done
+        cmd_range "$video" "$range" "$fps" "$width"
+        ;;
+    zoom)
+        [[ $# -lt 2 ]] && die "usage: videx zoom <video> <time> [--hd]"
+        cmd_zoom "$1" "$2" "${3:-}"
+        ;;
+    help|--help|-h)
+        cmd_help
+        ;;
+    *)
+        die "unknown command: $command (try: videx help)"
+        ;;
+esac

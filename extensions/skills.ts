@@ -65,7 +65,8 @@ export default function skillsExtension(pi: ExtensionAPI) {
 				ctx.ui.notify(`Install failed (exit ${r.code}): ${r.stderr}`, "error");
 			} else {
 				ctx.ui.setStatus("skills", undefined);
-				ctx.ui.notify(cleanOutput(r.stdout) || "Skills installed", "info");
+				ctx.ui.notify(cleanOutput(r.stdout) || "Skills installed. Reloading...", "info");
+				await pi.reload();
 			}
 		},
 	});
@@ -102,7 +103,8 @@ export default function skillsExtension(pi: ExtensionAPI) {
 				ctx.ui.notify(`Update failed (exit ${r.code}): ${r.stderr}`, "error");
 			} else {
 				ctx.ui.setStatus("skills", undefined);
-				ctx.ui.notify(cleanOutput(r.stdout) || "Skills updated", "info");
+				ctx.ui.notify(cleanOutput(r.stdout) || "Skills updated. Reloading...", "info");
+				await pi.reload();
 			}
 		},
 	});
@@ -136,7 +138,8 @@ export default function skillsExtension(pi: ExtensionAPI) {
 			if (r.code !== 0) {
 				ctx.ui.notify(`Remove failed (exit ${r.code}): ${r.stderr}`, "error");
 			} else {
-				ctx.ui.notify(cleanOutput(r.stdout) || "Skills removed", "info");
+				ctx.ui.notify(cleanOutput(r.stdout) || "Skills removed. Reloading...", "info");
+				await pi.reload();
 			}
 		},
 	});
