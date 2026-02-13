@@ -8,6 +8,7 @@
     "muted": "#C1C6B2",
     "thinking": "#ABA989",
     "bright": "#FAFAFA",
+    "midbright": "#A7A7A7",
 
     "highlight": "#7D56F4",
     "highlightBright": "#874BFD",
@@ -50,7 +51,7 @@
     "toolSuccessBg": "panel",
     "toolErrorBg": "panel",
     "toolTitle": "highlight",
-    "toolOutput": "bright",
+    "toolOutput": "midbright",
 
     "mdHeading": "highlight",
     "mdLink": "special",
