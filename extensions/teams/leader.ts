@@ -1,29 +1,25 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { SessionManager } from "@mariozechner/pi-coding-agent";
 import type { WorkerHandle, SpawnConfig, PollEvent } from "./types.js";
-import { POLL_INTERVAL_MS } from "./types.js";
-import { spawnWorker, isProcessAlive } from "./spawner.js";
-import { computePollEvents, type PollInput } from "./polling.js";
-import { parseTicketShow } from "./tickets.js";
+import { STUCK_THRESHOLD_MS } from "./types.js";
+import { spawnWorker } from "./spawner.js";
+import { parseTicketShow, getNewNotes } from "./tickets.js";
 import { createWorktree } from "./worktree.js";
 import { cleanupWorker } from "./cleanup.js";
-import { nextWorkerStatus } from "./state.js";
 import type { ChildProcess } from "node:child_process";
 import path from "node:path";
+import fs from "node:fs";
 import { createTeamsWidget } from "./widget.js";
 
 export class TeamLeader {
 	private workers = new Map<string, WorkerHandle>();
 	private childProcesses = new Map<string, ChildProcess>();
-	private pollTimer: ReturnType<typeof setInterval> | null = null;
+	private fileWatchers = new Map<string, fs.FSWatcher>();
+	private stuckTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private cleanupTimer: ReturnType<typeof setTimeout> | null = null;
 	private pi: ExtensionAPI;
 	private ctx: ExtensionContext | null = null;
 	private widgetFactory = createTeamsWidget(() => this.getWorkers());
-	private pollInFlight = false;
-	/** Workers whose process just exited — next poll handles them immediately */
-	private processExitQueue = new Set<string>();
-	/** When false, suppress progress comment events (toggle via /team thinking) */
+	private notifiedTerminal = new Set<string>();
 	showComments = true;
 
 	constructor(pi: ExtensionAPI) {
@@ -35,23 +31,13 @@ export class TeamLeader {
 		this.renderWidget();
 	}
 
-	startPolling() {
-		if (this.pollTimer) return;
-		void this.poll();
-		this.pollTimer = setInterval(() => void this.poll(), POLL_INTERVAL_MS);
-	}
-
-	stopPolling() {
-		if (this.pollTimer) {
-			clearInterval(this.pollTimer);
-			this.pollTimer = null;
-		}
-	}
+	// Keep these as no-ops for backward compat with tool.ts
+	startPolling() {}
+	stopPolling() {}
 
 	async delegate(ticketId: string, workerName: string, useWorktree: boolean): Promise<WorkerHandle> {
 		if (!this.ctx) throw new Error("Leader context not set");
 
-		// Cancel pending cleanup — new work starting
 		if (this.cleanupTimer) {
 			clearTimeout(this.cleanupTimer);
 			this.cleanupTimer = null;
@@ -80,28 +66,161 @@ export class TeamLeader {
 		this.workers.set(workerName, handle);
 		this.childProcesses.set(workerName, child);
 
-		// Listen for process exit — this is the real-time signal, not polling.
+		// Process exit — the definitive completion signal
 		child.on("close", (code) => {
 			handle.exitCode = code;
-			this.processExitQueue.add(workerName);
-			// Trigger immediate poll to handle the exit
-			void this.poll();
+			void this.handleWorkerExit(workerName, handle, code);
 		});
+
+		// Watch ticket file for progress notes
+		this.watchTicketFile(workerName, handle);
+
+		// Stuck detection
+		this.resetStuckTimer(workerName, handle);
 
 		this.renderWidget();
 		return handle;
+	}
+
+	private watchTicketFile(name: string, worker: WorkerHandle) {
+		if (!this.ctx) return;
+		const ticketPath = path.join(this.ctx.cwd, ".tickets", `${worker.ticketId}.md`);
+
+		try {
+			const watcher = fs.watch(ticketPath, () => {
+				void this.handleTicketChange(name, worker);
+			});
+			this.fileWatchers.set(name, watcher);
+		} catch {
+			// File may not exist yet — that's fine, process exit will catch completion
+		}
+	}
+
+	private async handleTicketChange(name: string, worker: WorkerHandle) {
+		if (!this.ctx) return;
+		if (["done", "failed", "killed"].includes(worker.status)) return;
+
+		try {
+			const tkResult = await this.pi.exec("tk", ["show", worker.ticketId], {
+				cwd: this.ctx.cwd,
+				timeout: 5000,
+			});
+			const ticket = parseTicketShow(tkResult.stdout ?? "");
+
+			worker.ticketStatus = ticket.status;
+			worker.lastNote = ticket.notes.at(-1)?.text;
+
+			if (worker.status === "spawning") {
+				worker.status = "running";
+			}
+
+			// Emit new comments
+			const newNotes = getNewNotes(ticket.notes, worker.lastSeenCommentCount);
+			for (const note of newNotes) {
+				this.notifyLLM({
+					type: "comment",
+					worker: { ...worker },
+					comment: note.text,
+				});
+			}
+			if (newNotes.length > 0) {
+				worker.lastSeenCommentCount = ticket.notes.length;
+				worker.lastActivityAt = Date.now();
+				this.resetStuckTimer(name, worker);
+			}
+
+			this.renderWidget();
+		} catch {
+			// ticket read failed — ignore, process exit will handle it
+		}
+	}
+
+	private async handleWorkerExit(name: string, worker: WorkerHandle, exitCode: number | null) {
+		if (!this.ctx) return;
+		if (["done", "failed", "killed"].includes(worker.status)) return;
+
+		// Stop watching
+		this.unwatchWorker(name);
+
+		// Read ticket to get final state
+		let lastNote = "(no notes left by worker)";
+		let ticketClosed = false;
+		try {
+			const tkResult = await this.pi.exec("tk", ["show", worker.ticketId], {
+				cwd: this.ctx.cwd,
+				timeout: 5000,
+			});
+			const ticket = parseTicketShow(tkResult.stdout ?? "");
+			ticketClosed = ticket.status === "closed" || ticket.status === "done";
+			lastNote = ticket.notes.at(-1)?.text ?? lastNote;
+
+			if (!ticketClosed) {
+				await this.pi.exec("tk", ["close", worker.ticketId], { cwd: this.ctx.cwd, timeout: 5000 }).catch(() => {});
+			}
+		} catch {
+			// tk read failed — proceed with what we have
+		}
+
+		const isSuccess = ticketClosed || exitCode === 0;
+		worker.status = isSuccess ? "done" : "failed";
+		worker.ticketStatus = "closed";
+		worker.lastNote = lastNote;
+		worker.lastActivityAt = Date.now();
+
+		this.notifyLLM(
+			isSuccess
+				? { type: "completed", worker: { ...worker }, result: lastNote }
+				: { type: "failed", worker: { ...worker }, reason: `process exited (code ${exitCode}). Last note: ${lastNote}` },
+		);
+
+		await cleanupWorker(this.ctx.cwd, worker).catch(() => {});
+		this.childProcesses.delete(name);
+
+		const hasActive = [...this.workers.values()].some((w) => !["done", "failed", "killed"].includes(w.status));
+		if (!hasActive) {
+			this.scheduleCleanup();
+		}
+		this.renderWidget();
+	}
+
+	private resetStuckTimer(name: string, worker: WorkerHandle) {
+		const existing = this.stuckTimers.get(name);
+		if (existing) clearTimeout(existing);
+
+		const timer = setTimeout(() => {
+			if (["done", "failed", "killed"].includes(worker.status)) return;
+			this.notifyLLM({
+				type: "stuck",
+				worker: { ...worker },
+				idleSeconds: Math.floor(STUCK_THRESHOLD_MS / 1000),
+			});
+		}, STUCK_THRESHOLD_MS);
+		this.stuckTimers.set(name, timer);
+	}
+
+	private unwatchWorker(name: string) {
+		const watcher = this.fileWatchers.get(name);
+		if (watcher) {
+			watcher.close();
+			this.fileWatchers.delete(name);
+		}
+		const timer = this.stuckTimers.get(name);
+		if (timer) {
+			clearTimeout(timer);
+			this.stuckTimers.delete(name);
+		}
 	}
 
 	async kill(workerName: string): Promise<void> {
 		const worker = this.workers.get(workerName);
 		if (!worker) return;
 		worker.status = "killed";
+		this.unwatchWorker(workerName);
 		if (this.ctx) {
 			await cleanupWorker(this.ctx.cwd, worker);
 		}
 		this.workers.delete(workerName);
 		this.childProcesses.delete(workerName);
-		this.processExitQueue.delete(workerName);
 		this.renderWidget();
 	}
 
@@ -120,133 +239,10 @@ export class TeamLeader {
 		return this.workers.get(name);
 	}
 
-	private async poll() {
-		if (!this.ctx) return;
-		if (this.pollInFlight) return;
-		this.pollInFlight = true;
-		try {
-
-		for (const [name, worker] of this.workers) {
-			if (["done", "failed", "killed"].includes(worker.status)) continue;
-
-			try {
-				const alive = isProcessAlive(worker.pid);
-
-				const tkResult = await this.pi.exec("tk", ["show", worker.ticketId], {
-					cwd: this.ctx.cwd,
-					timeout: 5000,
-				});
-				const ticket = parseTicketShow(tkResult.stdout ?? "");
-
-				let sessionLastActivity = worker.spawnedAt;
-				try {
-					const sm = SessionManager.open(worker.sessionFile);
-					const leaf = sm.getLeafEntry();
-					if (leaf?.timestamp) sessionLastActivity = leaf.timestamp;
-				} catch {
-					// session file may not exist yet
-				}
-
-				const input: PollInput = {
-					processAlive: alive,
-					ticketStatus: ticket.status,
-					ticketNotes: ticket.notes,
-					lastSeenCommentCount: worker.lastSeenCommentCount,
-					sessionLastActivityAt: sessionLastActivity,
-				};
-
-				worker.ticketStatus = ticket.status;
-				worker.lastNote = ticket.notes.at(-1)?.text;
-				const projected = nextWorkerStatus(worker.status, {
-					processAlive: alive,
-					ticketClosed: ticket.status === "closed" || ticket.status === "done",
-				});
-				if (worker.status === "spawning" && projected === "running") {
-					worker.status = "running";
-				}
-
-				// Process exited but ticket still open — worker forgot to close.
-				// Close it on their behalf and surface whatever they left behind.
-				if (!alive && ticket.status !== "closed" && ticket.status !== "done") {
-					const lastNote = ticket.notes.at(-1)?.text;
-					const exitCode = worker.exitCode ?? null;
-
-					// Close the ticket so it doesn't dangle
-					await this.pi.exec("tk", ["close", worker.ticketId], { cwd: this.ctx.cwd, timeout: 5000 }).catch(() => {});
-
-					const resultText = lastNote ?? "(no notes left by worker)";
-					const isSuccess = exitCode === 0;
-
-					worker.status = isSuccess ? "done" : "failed";
-					worker.ticketStatus = "closed";
-					worker.lastActivityAt = Date.now();
-
-					if (isSuccess) {
-						this.notifyLLM({
-							type: "completed",
-							worker: { ...worker },
-							result: resultText,
-						});
-					} else {
-						this.notifyLLM({
-							type: "failed",
-							worker: { ...worker },
-							reason: `process exited (code ${exitCode}), ticket was still open. Last note: ${resultText}`,
-						});
-					}
-
-					await cleanupWorker(this.ctx.cwd, worker);
-					this.childProcesses.delete(name);
-					this.processExitQueue.delete(name);
-					// Keep worker in map so widget shows final status
-					continue;
-				}
-
-				const events = computePollEvents(worker, input);
-
-				for (const event of events) {
-					worker.status = event.worker.status;
-					worker.ticketStatus = ticket.status;
-					worker.lastActivityAt = Date.now();
-
-					if (event.type === "comment") {
-						worker.lastSeenCommentCount = ticket.notes.length;
-					}
-
-					this.notifyLLM(event);
-
-					if (event.type === "completed" || event.type === "failed") {
-						await cleanupWorker(this.ctx.cwd, worker);
-						this.childProcesses.delete(name);
-						this.processExitQueue.delete(name);
-						// Keep worker in map so widget shows final status
-						break;
-					}
-				}
-			} catch (err) {
-				console.error(`[teams] poll error for worker ${name}:`, err);
-			}
-		}
-
-		this.processExitQueue.clear();
-
-		// Stop polling if no active workers remain
-		const hasActive = [...this.workers.values()].some((w) => !["done", "failed", "killed"].includes(w.status));
-		if (!hasActive) {
-			this.stopPolling();
-			this.scheduleCleanup();
-		}
-		this.renderWidget();
-		} finally {
-			this.pollInFlight = false;
-		}
-	}
-
 	private scheduleCleanup() {
 		if (this.cleanupTimer) return;
 		this.cleanupTimer = setTimeout(() => {
 			this.cleanupTimer = null;
-			// Remove terminal workers from map
 			for (const [name, w] of this.workers) {
 				if (["done", "failed", "killed"].includes(w.status)) {
 					this.workers.delete(name);
@@ -269,43 +265,30 @@ export class TeamLeader {
 		this.ctx.ui.setWidget("pi-teams", this.widgetFactory);
 	}
 
-	/** Track which completed/failed events we've already sent to avoid duplicates */
-	private notifiedTerminal = new Set<string>();
-
 	private notifyLLM(event: PollEvent) {
-		// Dedupe: only send one terminal notification per worker
 		if (event.type === "completed" || event.type === "failed") {
 			const key = `${event.worker.name}:terminal`;
 			if (this.notifiedTerminal.has(key)) return;
 			this.notifiedTerminal.add(key);
 		}
 
-		// Dedupe: skip DONE-prefixed comment events — that text is already in the completed event
 		if (event.type === "comment" && event.comment.startsWith("DONE:")) {
 			return;
 		}
 
-		// Suppress progress comments when thinking is toggled off
 		if (event.type === "comment" && !this.showComments) {
 			return;
 		}
 
 		const msg = formatPollEvent(event);
-		try {
-			this.pi.sendMessage(
-				{
-					customType: "team-event",
-					content: msg,
-					display: true,
-				},
-				{ deliverAs: "followUp", triggerTurn: true },
-			);
-		} catch (err) {
-			// Log but don't swallow — this helps debug missing notifications
-			console.error(`[teams] notifyLLM failed for ${event.type}/${event.worker.name}:`, err);
-		}
-
-
+		this.pi.sendMessage(
+			{
+				customType: "team-event",
+				content: msg,
+				display: true,
+			},
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
 	}
 }
 
@@ -317,11 +300,11 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
 const ICONS = {
-	done: `${GREEN}\uF00C${RESET}`,     // nf-fa-check
-	fail: `${RED}\uF00D${RESET}`,       // nf-fa-times
-	warn: `${YELLOW}\uF071${RESET}`,    // nf-fa-warning
-	comment: `${CYAN}\uF075${RESET}`,   // nf-fa-comment
-	alive: `${DIM}\uF111${RESET}`,      // nf-fa-circle
+	done: `${GREEN}\uF00C${RESET}`,
+	fail: `${RED}\uF00D${RESET}`,
+	warn: `${YELLOW}\uF071${RESET}`,
+	comment: `${CYAN}\uF075${RESET}`,
+	alive: `${DIM}\uF111${RESET}`,
 };
 
 function formatPollEvent(event: PollEvent): string {
