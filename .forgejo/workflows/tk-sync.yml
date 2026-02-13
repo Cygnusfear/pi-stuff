@@ -13,6 +13,21 @@ jobs:
     runs-on: host
     steps:
       - uses: https://code.forgejo.org/actions/checkout@v4
-      - uses: https://git.satsang.xyz/ramram/forgejo-sync@main
-        with:
-          token: ${{ secrets.FORGEJO_TOKEN }}
+
+      - name: Push sync (tickets → issues)
+        if: github.event_name == 'push'
+        run: |
+          cd ${{ github.workspace }}
+          FORGEJO_URL="${{ github.server_url }}" \
+          FORGEJO_TOKEN="${{ secrets.FORGEJO_TOKEN }}" \
+          REPO="${{ github.repository }}" \
+          REPO_DIR="${{ github.workspace }}" \
+          bun run .forgejo/sync/push-sync.ts
+
+      - name: Webhook sync (issues → tickets)
+        if: github.event_name == 'issues' || github.event_name == 'issue_comment'
+        run: |
+          cd ${{ github.workspace }}
+          echo '${{ toJSON(github.event) }}' | \
+          REPO_DIR="${{ github.workspace }}" \
+          bun run .forgejo/sync/webhook.ts

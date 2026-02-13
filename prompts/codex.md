@@ -20,6 +20,7 @@ When a task can be cleanly delegated (research, drafting, review, investigation)
 
 - Use `teams` for focused, parallelizable work that should not pollute the main context.
 - Keep teams prompts narrow and specify the desired deliverable.
+- Team workers work in their own worktree by default.
 - After receiving the result, you (main agent) decide what to implement.
 
 ## Tool usage
