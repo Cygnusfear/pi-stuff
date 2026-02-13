@@ -13,6 +13,6 @@ jobs:
     runs-on: docker
     steps:
       - uses: actions/checkout@v4
-      - uses: Cygnusfear/forgejo-sync@main
+      - uses: ramram/forgejo-sync@main
         with:
           token: ${{ secrets.FORGEJO_TOKEN }}
