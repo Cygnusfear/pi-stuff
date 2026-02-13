@@ -118,6 +118,9 @@ export class TeamLeader {
         worker.status = "running";
       }
 
+      // Re-check after async gap — worker may have exited while we were reading the ticket
+      if (["done", "failed", "killed"].includes(worker.status)) return;
+
       // Emit new comments
       const newNotes = getNewNotes(ticket.notes, worker.lastSeenCommentCount);
       for (const note of newNotes) {
@@ -142,6 +145,9 @@ export class TeamLeader {
   private async handleWorkerExit(name: string, worker: WorkerHandle, exitCode: number | null) {
     if (!this.ctx) return;
     if (["done", "failed", "killed"].includes(worker.status)) return;
+
+    // Mark as exiting immediately so in-flight handleTicketChange calls bail out
+    worker.status = exitCode === 0 ? "done" : "failed";
 
     // Stop watching
     this.unwatchWorker(name);
