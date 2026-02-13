@@ -12,7 +12,7 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: docker
     steps:
-      - uses: actions/checkout@v4
-      - uses: ramram/forgejo-sync@main
+      - uses: https://code.forgejo.org/actions/checkout@v4
+      - uses: https://git.satsang.xyz/ramram/forgejo-sync@main
         with:
           token: ${{ secrets.FORGEJO_TOKEN }}
