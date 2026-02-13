@@ -17,31 +17,37 @@ async function runSkills(pi: ExtensionAPI, args: string[], cwd: string, signal?:
 
 export default function skillsExtension(pi: ExtensionAPI) {
 
-	// Check for skill + package updates on session start
-	pi.on("session_start", async (_event, ctx) => {
-		const updates: string[] = [];
+	// Check for skill + package updates on session start (non-blocking)
+	pi.on("session_start", (_event, ctx) => {
+		(async () => {
+			const updates: string[] = [];
 
-		// Check skills
-		try {
-			const r = await runSkills(pi, ["check"], ctx.cwd);
-			if (r.code === 0 && cleanOutput(r.stdout).match(/update|available|new version/i)) {
-				updates.push("skills");
+			// Check skills (skip if no skills installed via CLI)
+			try {
+				const r = await runSkills(pi, ["check"], ctx.cwd);
+				if (r.code === 0) {
+					const out = cleanOutput(r.stdout);
+					// Only flag if there are actual updates, not "no skills tracked"
+					if (out.match(/update|available|new version/i) && !out.match(/no skills tracked|not tracked|install skills/i)) {
+						updates.push("skills");
+					}
+				}
+			} catch {}
+
+			// Check this package (compare local HEAD to remote)
+			try {
+				const pkgDir = new URL(".", import.meta.url).pathname.replace(/\/extensions\/$/, "");
+				await pi.exec("git", ["fetch", "--quiet"], { cwd: pkgDir });
+				const r = await pi.exec("git", ["rev-list", "HEAD..@{u}", "--count"], { cwd: pkgDir });
+				if (r.code === 0 && parseInt(r.stdout.trim(), 10) > 0) {
+					updates.push("package");
+				}
+			} catch {}
+
+			if (updates.length > 0) {
+				ctx.ui.setStatus("skills", `⬆ ${updates.join(" + ")} updates available`);
 			}
-		} catch {}
-
-		// Check this package (compare local HEAD to remote)
-		try {
-			const pkgDir = new URL(".", import.meta.url).pathname.replace(/\/extensions\/$/, "");
-			await pi.exec("git", ["fetch", "--quiet"], { cwd: pkgDir });
-			const r = await pi.exec("git", ["rev-list", "HEAD..@{u}", "--count"], { cwd: pkgDir });
-			if (r.code === 0 && parseInt(r.stdout.trim(), 10) > 0) {
-				updates.push("package");
-			}
-		} catch {}
-
-		if (updates.length > 0) {
-			ctx.ui.setStatus("skills", `⬆ ${updates.join(" + ")} updates available`);
-		}
+		})();
 	});
 
 	pi.registerCommand("skills:install", {
