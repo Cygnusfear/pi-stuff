@@ -409,8 +409,8 @@ const extensionStatusesSegment: StatusLineSegment = {
 
     if (parts.length === 0) return { content: "", visible: false };
 
-    // Statuses already have their own styling applied by the extensions
-    const content = parts.join(` ${SEP_DOT} `);
+    // Apply path color for consistency with folder segment
+    const content = color(ctx, "path", parts.join(` ${SEP_DOT} `));
     return { content, visible: true };
   },
 };
