@@ -285,17 +285,25 @@ export class TeamLeader {
 	}
 }
 
+const ICONS = {
+	done: "\uF00C",    // nf-fa-check
+	fail: "\uF00D",    // nf-fa-times
+	warn: "\uF071",    // nf-fa-warning
+	comment: "\uF075", // nf-fa-comment
+	alive: "\uF111",   // nf-fa-circle
+};
+
 function formatPollEvent(event: PollEvent): string {
 	switch (event.type) {
 		case "completed":
-			return `✅ Worker "${event.worker.name}" completed ticket #${event.worker.ticketId}:\n${event.result}`;
+			return `${ICONS.done} Worker "${event.worker.name}" completed ticket #${event.worker.ticketId}:\n${event.result}`;
 		case "failed":
-			return `❌ Worker "${event.worker.name}" failed on ticket #${event.worker.ticketId}: ${event.reason}`;
+			return `${ICONS.fail} Worker "${event.worker.name}" failed on ticket #${event.worker.ticketId}: ${event.reason}`;
 		case "stuck":
-			return `⚠️ Worker "${event.worker.name}" may be stuck on ticket #${event.worker.ticketId} (${event.idleSeconds}s idle)`;
+			return `${ICONS.warn} Worker "${event.worker.name}" may be stuck on ticket #${event.worker.ticketId} (${event.idleSeconds}s idle)`;
 		case "comment":
-			return `💬 Worker "${event.worker.name}" on ticket #${event.worker.ticketId}: ${event.comment}`;
+			return `${ICONS.comment} Worker "${event.worker.name}" on ticket #${event.worker.ticketId}: ${event.comment}`;
 		case "alive":
-			return `Worker "${event.worker.name}" is alive, working on ticket #${event.worker.ticketId}`;
+			return `${ICONS.alive} Worker "${event.worker.name}" is alive, working on ticket #${event.worker.ticketId}`;
 	}
 }
