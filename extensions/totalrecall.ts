@@ -4,8 +4,10 @@
  * Semantic memory for AI agents — search, recall, create, and unfold
  * synthesis nodes from TotalRecall's knowledge graph.
  *
- * Requires: totalrecall binary in PATH (cargo install from totalrecall-rs)
- * Requires: PostgreSQL with pgvector running (docker compose up -d postgres)
+ * Gracefully dormant if `totalrecall` binary is not in PATH.
+ *
+ * Auto-capture: on session compaction, saves the summary as a memory node.
+ * Auto-context: on agent start, injects relevant memories into the system prompt.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -14,6 +16,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { execSync } from "node:child_process";
+import * as path from "node:path";
 
 // =============================================================================
 // Types
@@ -88,10 +91,31 @@ interface CreateDetails {
 
 const DB_URL = "postgresql://totalrecall:totalrecall_dev@localhost:5432/totalrecall";
 
+/** Check if totalrecall binary is available */
+function isTotalRecallAvailable(): boolean {
+	try {
+		execSync("totalrecall --version", { encoding: "utf-8", timeout: 5_000, stdio: "pipe" });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Check if totalrecall can connect to its database */
+function isTotalRecallConnected(): boolean {
+	try {
+		runTotalRecall("status -o json");
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function runTotalRecall(args: string): string {
 	const result = execSync(`totalrecall ${args}`, {
 		encoding: "utf-8",
 		timeout: 30_000,
+		stdio: ["pipe", "pipe", "pipe"],
 		env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
 	});
 	return result;
@@ -100,8 +124,6 @@ function runTotalRecall(args: string): string {
 function esc(s: string): string {
 	return `'${s.replace(/'/g, "'\\''")}'`;
 }
-
-
 
 function formatAge(timestampMs: number): string {
 	const diff = Date.now() - timestampMs;
@@ -120,11 +142,96 @@ function typeEmoji(nodeType: string): string {
 	return map[nodeType] || "🧠";
 }
 
+/** Get repo name from a directory path */
+function getRepoName(cwd: string): string {
+	return path.basename(cwd);
+}
+
 // =============================================================================
 // Extension
 // =============================================================================
 
 export default function totalrecallExtension(pi: ExtensionAPI) {
+
+	// Check if totalrecall is available — skip everything if not
+	if (!isTotalRecallAvailable()) {
+		return;
+	}
+
+	// Check DB connectivity once at load (non-fatal — tools will error individually)
+	const connected = isTotalRecallConnected();
+	if (!connected) {
+		// Tools still register but will fail gracefully on use
+	}
+
+	// =========================================================================
+	// Auto-context: inject relevant memories at agent start
+	// =========================================================================
+
+	pi.on("before_agent_start", async (event: any, ctx: any) => {
+		try {
+			const repo = getRepoName(ctx.cwd);
+			const prompt = event.prompt;
+			if (!prompt || prompt.length < 5) return;
+
+			// Get relevant context for this prompt
+			const raw = runTotalRecall(`context -o json -t ${esc(prompt.slice(0, 200))} -n 5`);
+			const data = JSON.parse(raw);
+			const nodes = data.nodes || data.results || [];
+
+			if (nodes.length === 0) return;
+
+			const memories = nodes.map((n: any) =>
+				`- [${n.node_type}] ${n.one_liner} (score: ${(n.score || 0).toFixed(2)})`
+			).join("\n");
+
+			const contextBlock = `\n\n<relevant_memories repo="${repo}">\n${memories}\n</relevant_memories>`;
+
+			return {
+				systemPrompt: event.systemPrompt + contextBlock,
+			};
+		} catch {
+			// Silently fail — don't break the agent loop
+		}
+	});
+
+	// =========================================================================
+	// Auto-capture: save compaction summaries as memory nodes
+	// =========================================================================
+
+	pi.on("session_compact", async (event: any, ctx: any) => {
+		try {
+			const entry = event.compactionEntry;
+			if (!entry) return;
+
+			const summary = typeof entry === "string"
+				? entry
+				: entry.summary || entry.content || JSON.stringify(entry);
+
+			if (!summary || summary.length < 50) return;
+
+			const repo = getRepoName(ctx.cwd);
+
+			// Create a one-liner from first meaningful line
+			const firstLine = summary.split("\n").find((l: string) => l.trim().length > 10)?.trim() || "Session compaction";
+			const oneLiner = firstLine.slice(0, 120);
+
+			// Truncate summary for the CLI arg (keep under shell limits)
+			const truncatedSummary = summary.length > 2000
+				? summary.slice(0, 2000) + "\n\n[truncated]"
+				: summary;
+
+			runTotalRecall([
+				`create -o json`,
+				`-t summary`,
+				`-1 ${esc(oneLiner)}`,
+				`-s ${esc(truncatedSummary)}`,
+				`--repo ${esc(repo)}`,
+			].join(" "));
+		} catch {
+			// Silently fail — don't break compaction
+		}
+	});
 
 	// =========================================================================
 	// recall — primary search with ranking
