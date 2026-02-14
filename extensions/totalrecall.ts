@@ -237,47 +237,24 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	// Auto-capture on shutdown: save last turn context if no compaction happened
 	// =========================================================================
 
-	let turnLog: string[] = [];
 	let turnCount = 0;
-	let lastCompactTime = 0;
 
-	pi.on("turn_end", async (event: any, _ctx: any) => {
+	pi.on("turn_end", async (event: any, ctx: any) => {
 		try {
 			turnCount++;
 			const msg = event.message;
-			if (msg && typeof msg === "object" && msg.content) {
-				const text = Array.isArray(msg.content)
-					? msg.content.map((c: any) => c.text || "").join("\n")
-					: typeof msg.content === "string" ? msg.content : "";
-				if (text.length > 20) {
-					// Keep rolling log, cap at ~8k chars total
-					turnLog.push(`[Turn ${turnCount}] ${text.slice(0, 1500)}`);
-					while (turnLog.join("\n\n").length > 8000 && turnLog.length > 1) {
-						turnLog.shift();
-					}
-				}
-			}
-		} catch {
-			// Silent
-		}
-	});
+			if (!msg || typeof msg !== "object" || !msg.content) return;
 
-	// Track when compaction happens so we don't double-save
-	pi.on("session_compact", async () => { lastCompactTime = Date.now(); });
+			const text = Array.isArray(msg.content)
+				? msg.content.map((c: any) => c.text || "").join("\n")
+				: typeof msg.content === "string" ? msg.content : "";
 
-	pi.on("session_shutdown", async (_event: any, ctx: any) => {
-		try {
-			// Skip if compaction happened in the last 30s (already captured)
-			if (Date.now() - lastCompactTime < 30_000) return;
-			// Skip very short sessions
-			if (turnCount < 2 || turnLog.length === 0) return;
+			if (text.length < 50) return;
 
 			const repo = getRepoName(ctx.cwd);
-			const oneLiner = `Session context (${turnCount} turns, no compaction)`;
-			const fullLog = turnLog.join("\n\n");
-			const summary = fullLog.length > 3000
-				? fullLog.slice(0, 3000) + "\n\n[truncated]"
-				: fullLog;
+			const firstLine = text.split("\n").find((l: string) => l.trim().length > 10)?.trim() || `Turn ${turnCount}`;
+			const oneLiner = firstLine.slice(0, 120);
+			const summary = text.length > 2000 ? text.slice(0, 2000) + "\n\n[truncated]" : text;
 
 			runTotalRecall([
 				`create -o json`,
@@ -287,7 +264,7 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 				`--repo ${esc(repo)}`,
 			].join(" "));
 		} catch {
-			// Silent — don't delay shutdown
+			// Silent — don't break the session
 		}
 	});
 
