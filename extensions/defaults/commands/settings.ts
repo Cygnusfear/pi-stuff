@@ -3,11 +3,10 @@
  * Provides /ad:settings to edit the catalog array.
  */
 
-import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  PathArrayEditor,
+  ArrayEditor,
   registerSettingsCommand,
 } from "@aliou/pi-utils-settings";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -63,7 +62,7 @@ export function registerDefaultsSettings(pi: ExtensionAPI): void {
                 const currentConfig = tabConfig ?? ({} as DefaultsConfig);
                 const currentArray = currentConfig.catalog ?? resolved.catalog;
 
-                return new PathArrayEditor({
+                return new ArrayEditor({
                   label: "Catalog Directories",
                   items: [...currentArray],
                   theme: getSettingsListTheme(),
@@ -107,23 +106,10 @@ export function registerDefaultsSettings(pi: ExtensionAPI): void {
                 const currentArray =
                   currentConfig.agentsIgnorePaths ?? resolved.agentsIgnorePaths;
 
-                return new PathArrayEditor({
+                return new ArrayEditor({
                   label: "Ignored AGENTS Paths",
                   items: [...currentArray],
                   theme: getSettingsListTheme(),
-                  validatePath: (value) => {
-                    const resolved = path.resolve(
-                      process.cwd(),
-                      expandTilde(value),
-                    );
-                    if (!fs.existsSync(resolved)) {
-                      return "Path must exist";
-                    }
-                    if (path.basename(resolved) !== "AGENTS.md") {
-                      return "Path must point to AGENTS.md";
-                    }
-                    return null;
-                  },
                   onSave: (items: string[]) => {
                     const updated = {
                       ...currentConfig,
