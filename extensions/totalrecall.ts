@@ -9,10 +9,10 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateHead, keyHint } from "@mariozechner/pi-coding-agent";
+import { keyHint } from "@mariozechner/pi-coding-agent";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Text } from "@mariozechner/pi-tui";
-import { Type, type Static } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
 import { execSync } from "node:child_process";
 
 // =============================================================================
@@ -46,33 +46,58 @@ interface UnfoldResponse {
 	edge_count: number;
 }
 
-interface CreateResponse {
-	node_id: string;
-	one_liner: string;
-	node_type: string;
+interface RecallDetails {
+	query: string;
+	resultCount: number;
+	exit: "ok" | "error";
+	error?: string;
+	summaryLines: string[];
+	fullText: string;
+}
+
+interface UnfoldDetails {
+	nodeId: string;
+	depth: string;
+	nodeType: string;
+	exit: "ok" | "error";
+	error?: string;
+	summaryLines: string[];
+	fullText: string;
+}
+
+interface ContextDetails {
+	task: string;
+	nodeCount: number;
+	exit: "ok" | "error";
+	error?: string;
+	summaryLines: string[];
+	fullText: string;
+}
+
+interface CreateDetails {
+	nodeId: string;
+	nodeType: string;
+	oneLiner: string;
+	exit: "ok" | "error";
+	error?: string;
 }
 
 // =============================================================================
 // Helpers
 // =============================================================================
 
+const DB_URL = "postgresql://totalrecall:totalrecall_dev@localhost:5432/totalrecall";
+
 function runTotalRecall(args: string): string {
-	try {
-		const result = execSync(`totalrecall ${args}`, {
-			encoding: "utf-8",
-			timeout: 30_000,
-			env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || "postgresql://totalrecall:totalrecall_dev@localhost:5432/totalrecall" },
-		});
-		return result;
-	} catch (err: any) {
-		if (err.stderr) {
-			throw new Error(`totalrecall error: ${err.stderr.trim()}`);
-		}
-		throw err;
-	}
+	const result = execSync(`totalrecall ${args}`, {
+		encoding: "utf-8",
+		timeout: 30_000,
+		env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
+	});
+	return result;
 }
 
-function escapeShell(s: string): string {
+function esc(s: string): string {
 	return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
@@ -82,18 +107,13 @@ function formatAge(timestampMs: number): string {
 	if (hours < 24) return `${hours}h ago`;
 	const days = Math.floor(hours / 24);
 	if (days < 30) return `${days}d ago`;
-	const months = Math.floor(days / 30);
-	return `${months}mo ago`;
+	return `${Math.floor(days / 30)}mo ago`;
 }
 
 function typeEmoji(nodeType: string): string {
 	const map: Record<string, string> = {
-		decision: "⚖️",
-		learning: "💡",
-		entity: "🏷️",
-		event: "📅",
-		task: "✅",
-		summary: "📝",
+		decision: "⚖️", learning: "💡", entity: "🏷️",
+		event: "📅", task: "✅", summary: "📝",
 	};
 	return map[nodeType] || "🧠";
 }
@@ -102,14 +122,15 @@ function typeEmoji(nodeType: string): string {
 // Extension
 // =============================================================================
 
-export default function totalrecallExtension(api: ExtensionAPI) {
+export default function totalrecallExtension(pi: ExtensionAPI) {
 
 	// =========================================================================
 	// recall — primary search with ranking
 	// =========================================================================
 
-	api.addTool({
+	pi.registerTool({
 		name: "recall",
+		label: "TotalRecall Search",
 		description:
 			"Search TotalRecall semantic memory. Returns ranked synthesis nodes from the knowledge graph. " +
 			"Use for recalling past decisions, learnings, patterns, entities, and events across all sessions.",
@@ -119,45 +140,75 @@ export default function totalrecallExtension(api: ExtensionAPI) {
 			nodeType: Type.Optional(StringEnum(["decision", "learning", "entity", "event", "task", "summary"], { description: "Filter by node type" })),
 			minScore: Type.Optional(Type.Number({ description: "Minimum similarity score 0.0-1.0 (default: 0.0)", default: 0.0 })),
 		}),
-		execute: async (params) => {
-			const args = [`recall -o json -l ${params.limit || 10}`];
-			if (params.minScore) args.push(`-m ${params.minScore}`);
-			if (params.nodeType) args.push(`-t ${params.nodeType}`);
-			args.push(escapeShell(params.query));
 
-			const raw = runTotalRecall(args.join(" "));
-			const data: SearchResponse = JSON.parse(raw);
-			return JSON.stringify(data, null, 2);
-		},
-		renderCall: (params) => {
-			const parts = [`🧠 recall: "${params.query}"`];
-			if (params.nodeType) parts.push(`type=${params.nodeType}`);
-			if (params.limit && params.limit !== 10) parts.push(`limit=${params.limit}`);
-			return Text(parts.join(" "));
-		},
-		renderResult: (params, result, expanded) => {
+		async execute(_toolCallId, params: any, _signal) {
 			try {
-				const data: SearchResponse = JSON.parse(result);
-				if (data.results.length === 0) {
-					return Text("No memories found.");
-				}
+				const args = [`recall -o json -l ${params.limit || 10}`];
+				if (params.minScore) args.push(`-m ${params.minScore}`);
+				if (params.nodeType) args.push(`-t ${params.nodeType}`);
+				args.push(esc(params.query));
 
-				const lines = data.results.map((r, i) =>
-					`${typeEmoji(r.node_type)} [${r.ranking_score?.toFixed(2) || r.score.toFixed(2)}] ${r.one_liner}\n   ${r.node_id.slice(0, 8)}… | ${r.node_type}`
-				);
+				const raw = runTotalRecall(args.join(" "));
+				const data: SearchResponse = JSON.parse(raw);
 
-				if (expanded) {
-					return Text(`Found ${data.total} memories:\n\n${lines.join("\n\n")}`);
-				}
-
-				// Compact: just one-liners
-				const compact = data.results.map((r) =>
+				const summaryLines = data.results.map((r) =>
 					`${typeEmoji(r.node_type)} ${r.one_liner.slice(0, 90)}${r.one_liner.length > 90 ? "…" : ""}`
 				);
-				return Text(`${data.total} memories ${keyHint()}\n${compact.join("\n")}`);
-			} catch {
-				return Text(result);
+
+				const fullText = data.results.map((r) =>
+					`${typeEmoji(r.node_type)} [${(r.ranking_score ?? r.score).toFixed(2)}] ${r.one_liner}\n   ${r.node_id} | ${r.node_type}`
+				).join("\n\n");
+
+				return {
+					content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+					details: {
+						query: params.query,
+						resultCount: data.total,
+						exit: "ok",
+						summaryLines,
+						fullText,
+					} satisfies RecallDetails,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					content: [{ type: "text" as const, text: `TotalRecall error: ${message}` }],
+					details: { query: params.query, resultCount: 0, exit: "error", error: message, summaryLines: [], fullText: "" } satisfies RecallDetails,
+					isError: true,
+				};
 			}
+		},
+
+		renderCall(args: any, theme: any) {
+			const parts = [`🧠 recall`];
+			if (args.nodeType) parts.push(`[${args.nodeType}]`);
+			return new Text(
+				`${theme.fg("toolTitle", theme.bold(parts.join(" ")))} ${theme.fg("muted", args.query ?? "")}`,
+				0, 0,
+			);
+		},
+
+		renderResult(result: any, { expanded }: any, theme: any) {
+			const details = result.details as RecallDetails | undefined;
+			if (!details) return new Text("", 0, 0);
+
+			if (details.exit === "error") {
+				return new Text(theme.fg("error", `Error: ${details.error ?? "search failed"}`), 0, 0);
+			}
+
+			let text = theme.fg("success", "✓");
+			text += ` ${details.resultCount} memories`;
+
+			if (expanded && details.fullText) {
+				text += "\n\n" + details.fullText;
+			} else if (details.summaryLines?.length) {
+				for (const line of details.summaryLines) {
+					text += `\n  ${theme.fg("dim", line)}`;
+				}
+				text += `\n  ${theme.fg("dim", `(${keyHint("expandTools", "to expand")})`)}`;
+			}
+
+			return new Text(text, 0, 0);
 		},
 	});
 
@@ -165,38 +216,77 @@ export default function totalrecallExtension(api: ExtensionAPI) {
 	// memory_unfold — progressive disclosure
 	// =========================================================================
 
-	api.addTool({
+	pi.registerTool({
 		name: "memory_unfold",
+		label: "TotalRecall Unfold",
 		description:
 			"Unfold a TotalRecall memory node to see more detail. Use after recall/memory_context to drill into a specific node. " +
 			"Depths: summary (brief), full (complete synthesis), raw (with source content).",
 		parameters: Type.Object({
 			nodeId: Type.String({ description: "Node ID (from recall results)" }),
-			depth: Type.Optional(StringEnum(["summary", "full", "raw"], { description: "Detail level (default: full)", default: "full" })),
+			depth: Type.Optional(StringEnum(["summary", "full", "raw"], { description: "Detail level (default: full)" })),
 		}),
-		execute: async (params) => {
-			const depth = params.depth || "full";
-			const raw = runTotalRecall(`unfold -o json -d ${depth} ${escapeShell(params.nodeId)}`);
-			return raw;
-		},
-		renderCall: (params) => {
-			return Text(`🔍 unfold ${params.nodeId.slice(0, 8)}… (${params.depth || "full"})`);
-		},
-		renderResult: (params, result, expanded) => {
+
+		async execute(_toolCallId, params: any, _signal) {
 			try {
-				const data: UnfoldResponse = JSON.parse(result);
+				const depth = params.depth || "full";
+				const raw = runTotalRecall(`unfold -o json -d ${depth} ${esc(params.nodeId)}`);
+				const data: UnfoldResponse = JSON.parse(raw);
+
 				const age = formatAge(data.created_at);
 				const header = `${typeEmoji(data.node_type)} ${data.one_liner}\n${data.node_type} | ${age} | ${data.edge_count} edges | ${data.access_count} accesses`;
+				const body = data.full_synthesis || data.summary;
+				const fullText = `${header}\n\n${body}`;
 
-				if (expanded) {
-					const body = data.full_synthesis || data.summary;
-					return Text(`${header}\n\n${body}`);
-				}
-
-				return Text(`${header}\n\n${data.summary.slice(0, 200)}${data.summary.length > 200 ? "…" : ""} ${keyHint()}`);
-			} catch {
-				return Text(result);
+				return {
+					content: [{ type: "text" as const, text: raw }],
+					details: {
+						nodeId: params.nodeId,
+						depth,
+						nodeType: data.node_type,
+						exit: "ok",
+						summaryLines: [header.split("\n")[0]],
+						fullText,
+					} satisfies UnfoldDetails,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					content: [{ type: "text" as const, text: `TotalRecall error: ${message}` }],
+					details: { nodeId: params.nodeId, depth: params.depth || "full", nodeType: "", exit: "error", error: message, summaryLines: [], fullText: "" } satisfies UnfoldDetails,
+					isError: true,
+				};
 			}
+		},
+
+		renderCall(args: any, theme: any) {
+			return new Text(
+				`${theme.fg("toolTitle", theme.bold("🔍 unfold"))} ${theme.fg("muted", `${(args.nodeId ?? "").slice(0, 8)}… (${args.depth || "full"})`)}`,
+				0, 0,
+			);
+		},
+
+		renderResult(result: any, { expanded }: any, theme: any) {
+			const details = result.details as UnfoldDetails | undefined;
+			if (!details) return new Text("", 0, 0);
+
+			if (details.exit === "error") {
+				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+			}
+
+			let text = theme.fg("success", "✓");
+			text += ` ${details.nodeType}`;
+
+			if (expanded && details.fullText) {
+				text += "\n\n" + details.fullText;
+			} else if (details.summaryLines?.length) {
+				for (const line of details.summaryLines) {
+					text += `\n  ${line}`;
+				}
+				text += `\n  ${theme.fg("dim", `(${keyHint("expandTools", "to expand")})`)}`;
+			}
+
+			return new Text(text, 0, 0);
 		},
 	});
 
@@ -204,53 +294,79 @@ export default function totalrecallExtension(api: ExtensionAPI) {
 	// memory_context — get context for current task
 	// =========================================================================
 
-	api.addTool({
+	pi.registerTool({
 		name: "memory_context",
+		label: "TotalRecall Context",
 		description:
 			"Get relevant memories for a task or topic. Returns context-ranked nodes from the knowledge graph. " +
 			"Use at the start of work to load relevant background, or when you need to understand prior decisions.",
 		parameters: Type.Object({
 			task: Type.String({ description: "Task or topic description" }),
 			maxNodes: Type.Optional(Type.Number({ description: "Max nodes (default: 10)", default: 10 })),
-			xml: Type.Optional(Type.Boolean({ description: "Return as XML context block (default: false)", default: false })),
 		}),
-		execute: async (params) => {
-			const args = [`context -o json -t ${escapeShell(params.task)} -n ${params.maxNodes || 10}`];
-			if (params.xml) {
-				// XML mode returns human-readable XML block
-				const xmlArgs = `context --xml -t ${escapeShell(params.task)} -n ${params.maxNodes || 10}`;
-				return runTotalRecall(xmlArgs);
-			}
-			const raw = runTotalRecall(args.join(" "));
-			return raw;
-		},
-		renderCall: (params) => {
-			return Text(`🧠 context: "${params.task}" (max ${params.maxNodes || 10})`);
-		},
-		renderResult: (params, result, expanded) => {
-			if (params.xml) {
-				if (expanded) return Text(result);
-				const lines = result.split("\n").slice(0, 8);
-				return Text(`${lines.join("\n")}${result.split("\n").length > 8 ? "\n…" : ""} ${keyHint()}`);
-			}
-			try {
-				const data = JSON.parse(result);
-				const nodes = data.nodes || data.results || [];
-				if (nodes.length === 0) return Text("No relevant memories found.");
 
-				const compact = nodes.map((r: any) =>
-					`${typeEmoji(r.node_type)} ${r.one_liner?.slice(0, 90) || r.node_id}`
+		async execute(_toolCallId, params: any, _signal) {
+			try {
+				const raw = runTotalRecall(`context -o json -t ${esc(params.task)} -n ${params.maxNodes || 10}`);
+				const data = JSON.parse(raw);
+				const nodes = data.nodes || data.results || [];
+
+				const summaryLines = nodes.map((r: any) =>
+					`${typeEmoji(r.node_type)} ${(r.one_liner || r.node_id).slice(0, 90)}`
 				);
-				if (expanded) {
-					const detailed = nodes.map((r: any) =>
-						`${typeEmoji(r.node_type)} [${(r.score || 0).toFixed(2)}] ${r.one_liner}\n   ${r.node_id.slice(0, 8)}… | ${r.node_type}`
-					);
-					return Text(`${nodes.length} context nodes:\n\n${detailed.join("\n\n")}`);
-				}
-				return Text(`${nodes.length} memories ${keyHint()}\n${compact.join("\n")}`);
-			} catch {
-				return Text(result);
+
+				const fullText = nodes.map((r: any) =>
+					`${typeEmoji(r.node_type)} [${(r.score || 0).toFixed(2)}] ${r.one_liner}\n   ${r.node_id} | ${r.node_type}`
+				).join("\n\n");
+
+				return {
+					content: [{ type: "text" as const, text: raw }],
+					details: {
+						task: params.task,
+						nodeCount: nodes.length,
+						exit: "ok",
+						summaryLines,
+						fullText,
+					} satisfies ContextDetails,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					content: [{ type: "text" as const, text: `TotalRecall error: ${message}` }],
+					details: { task: params.task, nodeCount: 0, exit: "error", error: message, summaryLines: [], fullText: "" } satisfies ContextDetails,
+					isError: true,
+				};
 			}
+		},
+
+		renderCall(args: any, theme: any) {
+			return new Text(
+				`${theme.fg("toolTitle", theme.bold("🧠 context"))} ${theme.fg("muted", args.task ?? "")}`,
+				0, 0,
+			);
+		},
+
+		renderResult(result: any, { expanded }: any, theme: any) {
+			const details = result.details as ContextDetails | undefined;
+			if (!details) return new Text("", 0, 0);
+
+			if (details.exit === "error") {
+				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+			}
+
+			let text = theme.fg("success", "✓");
+			text += ` ${details.nodeCount} memories`;
+
+			if (expanded && details.fullText) {
+				text += "\n\n" + details.fullText;
+			} else if (details.summaryLines?.length) {
+				for (const line of details.summaryLines) {
+					text += `\n  ${theme.fg("dim", line)}`;
+				}
+				text += `\n  ${theme.fg("dim", `(${keyHint("expandTools", "to expand")})`)}`;
+			}
+
+			return new Text(text, 0, 0);
 		},
 	});
 
@@ -258,8 +374,9 @@ export default function totalrecallExtension(api: ExtensionAPI) {
 	// memory_create — create a new synthesis node
 	// =========================================================================
 
-	api.addTool({
+	pi.registerTool({
 		name: "memory_create",
+		label: "TotalRecall Create",
 		description:
 			"Create a new memory in TotalRecall's knowledge graph. Use to persist important decisions, learnings, " +
 			"patterns, or events that should be remembered across sessions. Types: decision, learning, entity, event, task, summary.",
@@ -272,32 +389,62 @@ export default function totalrecallExtension(api: ExtensionAPI) {
 			sessionId: Type.Optional(Type.String({ description: "Session ID" })),
 			repo: Type.Optional(Type.String({ description: "Source repository" })),
 		}),
-		execute: async (params) => {
-			const args = [
-				`create -o json`,
-				`-t ${params.nodeType}`,
-				`-1 ${escapeShell(params.oneLiner)}`,
-				`-s ${escapeShell(params.summary)}`,
-			];
-			if (params.fullSynthesis) args.push(`-f ${escapeShell(params.fullSynthesis)}`);
-			if (params.entityName) args.push(`-e ${escapeShell(params.entityName)}`);
-			if (params.sessionId) args.push(`--session-id ${escapeShell(params.sessionId)}`);
-			if (params.repo) args.push(`--repo ${escapeShell(params.repo)}`);
 
-			const raw = runTotalRecall(args.join(" "));
-			return raw;
-		},
-		renderCall: (params) => {
-			return Text(`${typeEmoji(params.nodeType)} create ${params.nodeType}: "${params.oneLiner.slice(0, 60)}…"`);
-		},
-		renderResult: (params, result, expanded) => {
+		async execute(_toolCallId, params: any, _signal) {
 			try {
-				const data = JSON.parse(result);
-				const id = data.node_id || data.id || "unknown";
-				return Text(`${typeEmoji(params.nodeType)} Created: ${params.oneLiner}\n   ${id.slice(0, 8)}… | ${params.nodeType}`);
-			} catch {
-				return Text(result);
+				const args = [
+					`create -o json`,
+					`-t ${params.nodeType}`,
+					`-1 ${esc(params.oneLiner)}`,
+					`-s ${esc(params.summary)}`,
+				];
+				if (params.fullSynthesis) args.push(`-f ${esc(params.fullSynthesis)}`);
+				if (params.entityName) args.push(`-e ${esc(params.entityName)}`);
+				if (params.sessionId) args.push(`--session-id ${esc(params.sessionId)}`);
+				if (params.repo) args.push(`--repo ${esc(params.repo)}`);
+
+				const raw = runTotalRecall(args.join(" "));
+				const data = JSON.parse(raw);
+
+				return {
+					content: [{ type: "text" as const, text: raw }],
+					details: {
+						nodeId: data.node_id || data.id || "",
+						nodeType: params.nodeType,
+						oneLiner: params.oneLiner,
+						exit: "ok",
+					} satisfies CreateDetails,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					content: [{ type: "text" as const, text: `TotalRecall error: ${message}` }],
+					details: { nodeId: "", nodeType: params.nodeType, oneLiner: params.oneLiner, exit: "error", error: message } satisfies CreateDetails,
+					isError: true,
+				};
 			}
+		},
+
+		renderCall(args: any, theme: any) {
+			const emoji = typeEmoji(args.nodeType);
+			return new Text(
+				`${theme.fg("toolTitle", theme.bold(`${emoji} create ${args.nodeType}`))} ${theme.fg("muted", (args.oneLiner ?? "").slice(0, 60))}`,
+				0, 0,
+			);
+		},
+
+		renderResult(result: any, _options: any, theme: any) {
+			const details = result.details as CreateDetails | undefined;
+			if (!details) return new Text("", 0, 0);
+
+			if (details.exit === "error") {
+				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+			}
+
+			return new Text(
+				`${theme.fg("success", "✓")} ${typeEmoji(details.nodeType)} ${details.oneLiner}\n  ${theme.fg("dim", details.nodeId.slice(0, 8) + "…")}`,
+				0, 0,
+			);
 		},
 	});
 
@@ -305,23 +452,50 @@ export default function totalrecallExtension(api: ExtensionAPI) {
 	// memory_status — database status
 	// =========================================================================
 
-	api.addTool({
+	pi.registerTool({
 		name: "memory_status",
-		description: "Get TotalRecall database status — node count, types, and health.",
+		label: "TotalRecall Status",
+		description: "Get TotalRecall database status — node count and health.",
 		parameters: Type.Object({}),
-		execute: async () => {
-			return runTotalRecall("status -o json");
-		},
-		renderCall: () => Text("🧠 memory status"),
-		renderResult: (_params, result, expanded) => {
+
+		async execute(_toolCallId, _params: any, _signal) {
 			try {
-				const data = JSON.parse(result);
-				const line = `🧠 ${data.node_count || "?"} nodes in memory`;
-				if (expanded) return Text(`${line}\n\n${JSON.stringify(data, null, 2)}`);
-				return Text(`${line} ${keyHint()}`);
-			} catch {
-				return Text(result);
+				const raw = runTotalRecall("status -o json");
+				const data = JSON.parse(raw);
+				return {
+					content: [{ type: "text" as const, text: raw }],
+					details: { nodeCount: data.node_count, exit: "ok" as const },
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					content: [{ type: "text" as const, text: `TotalRecall error: ${message}` }],
+					details: { nodeCount: 0, exit: "error" as const, error: message },
+					isError: true,
+				};
 			}
+		},
+
+		renderCall(_args: any, theme: any) {
+			return new Text(theme.fg("toolTitle", theme.bold("🧠 memory status")), 0, 0);
+		},
+
+		renderResult(result: any, { expanded }: any, theme: any) {
+			const details = result.details as { nodeCount: number; exit: string; error?: string } | undefined;
+			if (!details) return new Text("", 0, 0);
+
+			if (details.exit === "error") {
+				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+			}
+
+			let text = `${theme.fg("success", "✓")} 🧠 ${details.nodeCount} nodes in memory`;
+			if (expanded) {
+				try {
+					const content = result.content?.[0]?.text;
+					if (content) text += "\n\n" + content;
+				} catch {}
+			}
+			return new Text(text, 0, 0);
 		},
 	});
 }
