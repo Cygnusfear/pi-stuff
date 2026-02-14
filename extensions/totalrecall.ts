@@ -159,6 +159,43 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	}
 
 	// =========================================================================
+	// Auto-context: async fetch on session start, inject on first prompt
+	// =========================================================================
+
+	let memoriesBlock: string | null = null;
+	let memoriesFetched = false;
+
+	// Fire-and-forget on session load — result ready by first prompt
+	const repo = getRepoName(process.cwd());
+	const child = spawn("sh", ["-c", `totalrecall context -o json -t ${esc(repo)} -n 5`], {
+		stdio: ["pipe", "pipe", "pipe"],
+		env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
+	});
+	let stdout = "";
+	child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+	child.on("close", () => {
+		try {
+			const data = JSON.parse(stdout);
+			const nodes = data.nodes || data.results || [];
+			if (nodes.length > 0) {
+				const memories = nodes.map((n: any) =>
+					`- [${n.node_type}] ${n.one_liner} (score: ${(n.score || 0).toFixed(2)})`
+				).join("\n");
+				memoriesBlock = `\n\n<relevant_memories repo="${repo}">\n${memories}\n</relevant_memories>`;
+			}
+		} catch { /* silent */ }
+		memoriesFetched = true;
+	});
+
+	pi.on("before_agent_start", async (event: any, _ctx: any) => {
+		if (!memoriesBlock) return;
+		// Inject once, then clear so it doesn't repeat every prompt
+		const block = memoriesBlock;
+		memoriesBlock = null;
+		return { systemPrompt: event.systemPrompt + block };
+	});
+
+	// =========================================================================
 	// Auto-capture: save compaction summaries as memory nodes
 	// =========================================================================
 
