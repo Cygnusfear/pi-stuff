@@ -159,37 +159,6 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	}
 
 	// =========================================================================
-	// Auto-context: inject relevant memories at agent start
-	// =========================================================================
-
-	pi.on("before_agent_start", async (event: any, ctx: any) => {
-		try {
-			const repo = getRepoName(ctx.cwd);
-			const prompt = event.prompt;
-			if (!prompt || prompt.length < 5) return;
-
-			// Get relevant context for this prompt
-			const raw = runTotalRecall(`context -o json -t ${esc(prompt.slice(0, 200))} -n 5`);
-			const data = JSON.parse(raw);
-			const nodes = data.nodes || data.results || [];
-
-			if (nodes.length === 0) return;
-
-			const memories = nodes.map((n: any) =>
-				`- [${n.node_type}] ${n.one_liner} (score: ${(n.score || 0).toFixed(2)})`
-			).join("\n");
-
-			const contextBlock = `\n\n<relevant_memories repo="${repo}">\n${memories}\n</relevant_memories>`;
-
-			return {
-				systemPrompt: event.systemPrompt + contextBlock,
-			};
-		} catch {
-			// Silently fail — don't break the agent loop
-		}
-	});
-
-	// =========================================================================
 	// Auto-capture: save compaction summaries as memory nodes
 	// =========================================================================
 
