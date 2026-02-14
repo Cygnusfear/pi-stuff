@@ -237,21 +237,24 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	// Auto-capture on shutdown: save last turn context if no compaction happened
 	// =========================================================================
 
-	let lastTurnMessage = "";
+	let turnLog: string[] = [];
 	let turnCount = 0;
 	let lastCompactTime = 0;
 
 	pi.on("turn_end", async (event: any, _ctx: any) => {
 		try {
 			turnCount++;
-			// Keep a rolling summary of the last assistant message
 			const msg = event.message;
 			if (msg && typeof msg === "object" && msg.content) {
 				const text = Array.isArray(msg.content)
 					? msg.content.map((c: any) => c.text || "").join("\n")
 					: typeof msg.content === "string" ? msg.content : "";
 				if (text.length > 20) {
-					lastTurnMessage = text.slice(0, 2000);
+					// Keep rolling log, cap at ~8k chars total
+					turnLog.push(`[Turn ${turnCount}] ${text.slice(0, 1500)}`);
+					while (turnLog.join("\n\n").length > 8000 && turnLog.length > 1) {
+						turnLog.shift();
+					}
 				}
 			}
 		} catch {
@@ -267,11 +270,14 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 			// Skip if compaction happened in the last 30s (already captured)
 			if (Date.now() - lastCompactTime < 30_000) return;
 			// Skip very short sessions
-			if (turnCount < 2 || !lastTurnMessage) return;
+			if (turnCount < 2 || turnLog.length === 0) return;
 
 			const repo = getRepoName(ctx.cwd);
-			const oneLiner = `Session shutdown (${turnCount} turns, no compaction)`;
-			const summary = `Last assistant response before shutdown:\n\n${lastTurnMessage}`;
+			const oneLiner = `Session context (${turnCount} turns, no compaction)`;
+			const fullLog = turnLog.join("\n\n");
+			const summary = fullLog.length > 3000
+				? fullLog.slice(0, 3000) + "\n\n[truncated]"
+				: fullLog;
 
 			runTotalRecall([
 				`create -o json`,
