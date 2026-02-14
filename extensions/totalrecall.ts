@@ -15,7 +15,7 @@ import { keyHint } from "@mariozechner/pi-coding-agent";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import * as path from "node:path";
 
 // =============================================================================
@@ -121,6 +121,16 @@ function runTotalRecall(args: string): string {
 	return result;
 }
 
+/** Fire-and-forget — doesn't block the event loop */
+function runTotalRecallAsync(args: string): void {
+	const child = spawn("sh", ["-c", `totalrecall ${args}`], {
+		stdio: "ignore",
+		detached: true,
+		env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
+	});
+	child.unref();
+}
+
 function esc(s: string): string {
 	return `'${s.replace(/'/g, "'\\''")}'`;
 }
@@ -221,7 +231,7 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 				? summary.slice(0, 2000) + "\n\n[truncated]"
 				: summary;
 
-			runTotalRecall([
+			runTotalRecallAsync([
 				`create -o json`,
 				`-t summary`,
 				`-1 ${esc(oneLiner)}`,
@@ -256,7 +266,7 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 			const oneLiner = firstLine.slice(0, 120);
 			const summary = text.length > 2000 ? text.slice(0, 2000) + "\n\n[truncated]" : text;
 
-			runTotalRecall([
+			runTotalRecallAsync([
 				`create -o json`,
 				`-t summary`,
 				`-1 ${esc(oneLiner)}`,
