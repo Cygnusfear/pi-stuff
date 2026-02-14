@@ -234,6 +234,58 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	});
 
 	// =========================================================================
+	// Auto-capture on shutdown: save last turn context if no compaction happened
+	// =========================================================================
+
+	let lastTurnMessage = "";
+	let turnCount = 0;
+	let lastCompactTime = 0;
+
+	pi.on("turn_end", async (event: any, _ctx: any) => {
+		try {
+			turnCount++;
+			// Keep a rolling summary of the last assistant message
+			const msg = event.message;
+			if (msg && typeof msg === "object" && msg.content) {
+				const text = Array.isArray(msg.content)
+					? msg.content.map((c: any) => c.text || "").join("\n")
+					: typeof msg.content === "string" ? msg.content : "";
+				if (text.length > 20) {
+					lastTurnMessage = text.slice(0, 2000);
+				}
+			}
+		} catch {
+			// Silent
+		}
+	});
+
+	// Track when compaction happens so we don't double-save
+	pi.on("session_compact", async () => { lastCompactTime = Date.now(); });
+
+	pi.on("session_shutdown", async (_event: any, ctx: any) => {
+		try {
+			// Skip if compaction happened in the last 30s (already captured)
+			if (Date.now() - lastCompactTime < 30_000) return;
+			// Skip very short sessions
+			if (turnCount < 2 || !lastTurnMessage) return;
+
+			const repo = getRepoName(ctx.cwd);
+			const oneLiner = `Session shutdown (${turnCount} turns, no compaction)`;
+			const summary = `Last assistant response before shutdown:\n\n${lastTurnMessage}`;
+
+			runTotalRecall([
+				`create -o json`,
+				`-t summary`,
+				`-1 ${esc(oneLiner)}`,
+				`-s ${esc(summary)}`,
+				`--repo ${esc(repo)}`,
+			].join(" "));
+		} catch {
+			// Silent — don't delay shutdown
+		}
+	});
+
+	// =========================================================================
 	// recall — primary search with ranking
 	// =========================================================================
 
