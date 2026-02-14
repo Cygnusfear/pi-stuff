@@ -94,17 +94,7 @@ const DB_URL = "postgresql://totalrecall:totalrecall_dev@localhost:5432/totalrec
 /** Check if totalrecall binary is available */
 function isTotalRecallAvailable(): boolean {
 	try {
-		execSync("totalrecall --version", { encoding: "utf-8", timeout: 5_000, stdio: "pipe" });
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-/** Check if totalrecall can connect to its database */
-function isTotalRecallConnected(): boolean {
-	try {
-		runTotalRecall("status -o json");
+		execSync("which totalrecall", { encoding: "utf-8", timeout: 1_000, stdio: "pipe" });
 		return true;
 	} catch {
 		return false;
@@ -163,15 +153,9 @@ function getRepoName(cwd: string): string {
 
 export default function totalrecallExtension(pi: ExtensionAPI) {
 
-	// Check if totalrecall is available — skip everything if not
+	// Check if totalrecall binary exists — skip everything if not
 	if (!isTotalRecallAvailable()) {
 		return;
-	}
-
-	// Check DB connectivity once at load (non-fatal — tools will error individually)
-	const connected = isTotalRecallConnected();
-	if (!connected) {
-		// Tools still register but will fail gracefully on use
 	}
 
 	// =========================================================================
