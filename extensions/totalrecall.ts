@@ -101,6 +101,26 @@ function esc(s: string): string {
 	return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
+/** Resolve a short node ID prefix to full UUID by querying Postgres */
+function resolveNodeId(prefix: string): string {
+	if (prefix.length >= 36) return prefix; // already full UUID
+	try {
+		const raw = runTotalRecall(`recall -o json -l 50 ${esc(prefix)}`);
+		const data: SearchResponse = JSON.parse(raw);
+		const match = data.results.find((r) => r.node_id.startsWith(prefix));
+		if (match) return match.node_id;
+	} catch {}
+	// Try direct DB query for prefix match
+	try {
+		const result = execSync(
+			`psql "${process.env.DATABASE_URL || DB_URL}" -t -A -c "SELECT id FROM synthesis_nodes WHERE id LIKE '${prefix}%' LIMIT 1"`,
+			{ encoding: "utf-8", timeout: 5_000 },
+		).trim();
+		if (result) return result;
+	} catch {}
+	return prefix; // return as-is, let totalrecall error
+}
+
 function formatAge(timestampMs: number): string {
 	const diff = Date.now() - timestampMs;
 	const hours = Math.floor(diff / 3600000);
@@ -223,14 +243,15 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 			"Unfold a TotalRecall memory node to see more detail. Use after recall/memory_context to drill into a specific node. " +
 			"Depths: summary (brief), full (complete synthesis), raw (with source content).",
 		parameters: Type.Object({
-			nodeId: Type.String({ description: "Node ID (from recall results)" }),
+			nodeId: Type.String({ description: "Node ID (from recall results). Supports short prefixes like 'df415780' — will resolve to full UUID." }),
 			depth: Type.Optional(StringEnum(["summary", "full", "raw"], { description: "Detail level (default: full)" })),
 		}),
 
 		async execute(_toolCallId, params: any, _signal) {
 			try {
 				const depth = params.depth || "full";
-				const raw = runTotalRecall(`unfold -o json -d ${depth} ${esc(params.nodeId)}`);
+				const nodeId = resolveNodeId(params.nodeId);
+				const raw = runTotalRecall(`unfold -o json -d ${depth} ${esc(nodeId)}`);
 				const data: UnfoldResponse = JSON.parse(raw);
 
 				const age = formatAge(data.created_at);
