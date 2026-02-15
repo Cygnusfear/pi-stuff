@@ -159,37 +159,41 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	}
 
 	// =========================================================================
-	// Auto-context: async fetch on session start, inject on first prompt
+	// Auto-context: graft recent memories + semantic refresh mid-session
 	// =========================================================================
 
 	let memoriesBlock: string | null = null;
-	let memoriesFetched = false;
+	let turnCount = 0;
+	let turnContent: string[] = [];
 
-	// Fire-and-forget on session load — result ready by first prompt
-	const repo = getRepoName(process.cwd());
-	const child = spawn("sh", ["-c", `totalrecall context -o json -t ${esc(repo)} -n 5`], {
-		stdio: ["pipe", "pipe", "pipe"],
-		env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
-	});
-	let stdout = "";
-	child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-	child.on("close", () => {
-		try {
-			const data = JSON.parse(stdout);
-			const nodes = data.nodes || data.results || [];
-			if (nodes.length > 0) {
-				const memories = nodes.map((n: any) =>
-					`- [${n.node_type}] ${n.one_liner} (score: ${(n.score || 0).toFixed(2)})`
-				).join("\n");
-				memoriesBlock = `\n\n<relevant_memories repo="${repo}">\n${memories}\n</relevant_memories>`;
-			}
-		} catch { /* silent */ }
-		memoriesFetched = true;
-	});
+	/** Async fetch helper — resolves to formatted block or null */
+	function asyncFetch(cmd: string): void {
+		const child = spawn("sh", ["-c", cmd], {
+			stdio: ["pipe", "pipe", "pipe"],
+			env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
+		});
+		let out = "";
+		child.stdout?.on("data", (d: Buffer) => { out += d.toString(); });
+		child.on("close", () => {
+			try {
+				const data = JSON.parse(out);
+				const nodes = data.nodes || data.results || [];
+				if (nodes.length > 0) {
+					const repo = getRepoName(process.cwd());
+					const memories = nodes.map((n: any) =>
+						`- [${n.node_type}] ${n.one_liner}`
+					).join("\n");
+					memoriesBlock = `\n\n<relevant_memories repo="${repo}">\n${memories}\n</relevant_memories>`;
+				}
+			} catch { /* silent */ }
+		});
+	}
+
+	// Phase 1: fetch 10 most recent nodes at load (graft)
+	asyncFetch(`totalrecall recent -o json -l 10`);
 
 	pi.on("before_agent_start", async (event: any, _ctx: any) => {
 		if (!memoriesBlock) return;
-		// Inject once, then clear so it doesn't repeat every prompt
 		const block = memoriesBlock;
 		memoriesBlock = null;
 		return { systemPrompt: event.systemPrompt + block };
@@ -250,6 +254,13 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 				: typeof msg.content === "string" ? msg.content : "";
 
 			if (text.length < 50) return;
+
+			// Phase 2: after turn 3, do semantic refresh based on session content
+			if (turnCount === 3 && turnContent.length > 0) {
+				const query = turnContent.join(" ").slice(0, 200);
+				asyncFetch(`totalrecall context -o json -t ${esc(query)} -n 10`);
+			}
+			turnContent.push(text.slice(0, 300));
 
 			const repo = getRepoName(ctx.cwd);
 			const firstLine = text.split("\n").find((l: string) => l.trim().length > 10)?.trim() || `Turn ${turnCount}`;
