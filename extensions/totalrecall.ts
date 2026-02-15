@@ -163,7 +163,6 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	// =========================================================================
 
 	let memoriesBlock: string | null = null;
-	let turnCount = 0;
 	let turnContent: string[] = [];
 
 	/** Async fetch helper — resolves to formatted block or null */
