@@ -47,7 +47,7 @@ jobs:
         if: github.event_name == 'issues' || github.event_name == 'issue_comment'
         run: |
           cd "$WORKDIR"
-          echo '${{ toJSON(github.event) }}' | \
+          cat "$GITHUB_EVENT_PATH" | \
           REPO_DIR="$WORKDIR" \
           bun run .forgejo/sync/webhook.ts
 
