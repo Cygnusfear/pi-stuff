@@ -235,6 +235,7 @@ export class TeamLeader {
     worker.status = "killed";
     this.unwatchWorker(workerName);
     if (this.ctx) {
+      await this.pi.exec("tk", ["close", worker.ticketId], { cwd: this.ctx.cwd, timeout: 5000 }).catch(() => {});
       await cleanupWorker(this.ctx.cwd, worker);
     }
     this.workers.delete(workerName);
