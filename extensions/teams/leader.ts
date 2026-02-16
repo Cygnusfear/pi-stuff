@@ -39,6 +39,7 @@ export class TeamLeader {
     ticketId: string,
     workerName: string,
     useWorktree: boolean,
+    model?: string,
   ): Promise<WorkerHandle> {
     if (!this.ctx) throw new Error("Leader context not set");
 
@@ -64,6 +65,7 @@ export class TeamLeader {
       useWorktree,
       cwd,
       leaderSessionFile: sessionFile,
+      model,
     };
 
     const { process: child, handle } = spawnWorker(config);

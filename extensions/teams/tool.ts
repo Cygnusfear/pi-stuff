@@ -12,6 +12,7 @@ const TeamsParams = Type.Object({
 			Type.Object({
 				text: Type.String({ description: "Task description" }),
 				assignee: Type.Optional(Type.String({ description: "Worker name" })),
+				model: Type.Optional(Type.String({ description: 'Model for this worker (e.g. "openai/gpt-5.3-codex", "anthropic/claude-opus-4-6")' })),
 			}),
 		),
 	),
@@ -21,7 +22,7 @@ const TeamsParams = Type.Object({
 
 type TeamsActionParams = {
 	action?: "delegate" | "list" | "kill" | "kill_all";
-	tasks?: Array<{ text: string; assignee?: string }>;
+	tasks?: Array<{ text: string; assignee?: string; model?: string }>;
 	name?: string;
 	useWorktree?: boolean;
 };
@@ -36,7 +37,8 @@ async function runTeamsAction(pi: ExtensionAPI, leader: TeamLeader, params: Team
 			return { content: [{ type: "text" as const, text: "No active workers." }] };
 		}
 		const lines = workers.map((w) => {
-			const parts = [`${w.name}: ${w.status} | ticket #${w.ticketId} | pid ${w.pid}`];
+			const modelSuffix = w.model ? ` | model ${w.model}` : "";
+			const parts = [`${w.name}: ${w.status} | ticket #${w.ticketId} | pid ${w.pid}${modelSuffix}`];
 			if (w.lastNote) parts.push(`  last note: ${w.lastNote.slice(0, 120)}`);
 			return parts.join("\n");
 		});
@@ -81,8 +83,9 @@ async function runTeamsAction(pi: ExtensionAPI, leader: TeamLeader, params: Team
 			await pi.exec("tk", ["start", ticketId], { cwd: ctx.cwd, timeout: 5000 });
 
 			try {
-				const handle = await leader.delegate(ticketId, workerName, useWorktree);
-				results.push(`Spawned "${workerName}" → ticket #${ticketId} (pid ${handle.pid})`);
+				const handle = await leader.delegate(ticketId, workerName, useWorktree, task.model);
+				const modelInfo = task.model ? ` [${task.model}]` : "";
+				results.push(`Spawned "${workerName}" → ticket #${ticketId} (pid ${handle.pid})${modelInfo}`);
 			} catch (err) {
 				results.push(`Failed to spawn "${workerName}": ${err}`);
 			}
@@ -102,7 +105,8 @@ export function registerTeamsTool(pi: ExtensionAPI, leader: TeamLeader) {
 		description: `Coordinate a team of worker agents.
 
 Actions:
-- delegate: Create tickets and spawn workers. Provide "tasks" array with { text, assignee? }.
+- delegate: Create tickets and spawn workers. Provide "tasks" array with { text, assignee?, model? }.
+  Each worker can use a different model via "provider/model-id" (e.g. "openai/gpt-5.3-codex", "anthropic/claude-opus-4-6").
 - list: Show all active workers and their status.
 - kill: Kill a specific worker by name.
 - kill_all: Kill all workers.

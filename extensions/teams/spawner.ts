@@ -33,7 +33,11 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 		: path.join(os.tmpdir(), "pi-teams-sessions");
 	const sessionDir = path.join(baseSessionDir, `team-${config.workerName}-${config.ticketId}-${Date.now()}`);
 
-	const child = spawn("pi", ["--non-interactive", "--session-dir", sessionDir, "-p", buildWorkerPrompt(config.ticketId, config.workerName)], {
+	const args = ["--non-interactive", "--session-dir", sessionDir];
+	if (config.model) args.push("--model", config.model);
+	args.push("-p", buildWorkerPrompt(config.ticketId, config.workerName));
+
+	const child = spawn("pi", args, {
 		cwd: config.cwd,
 		env,
 		stdio: "ignore",
@@ -51,6 +55,7 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 		sessionDir,
 		sessionFile,
 		worktreePath: config.useWorktree ? config.cwd : null,
+		model: config.model,
 		status: "spawning",
 		spawnedAt: Date.now(),
 		lastActivityAt: Date.now(),

@@ -42,7 +42,8 @@ export function createTeamsWidget(getWorkers: () => WorkerHandle[]) {
 				const name = theme.bold(padRight(w.name, nameW));
 				const status = theme.fg(STATUS_COLOR[w.status], padRight(w.status, 8));
 				const ticketStatus = w.ticketStatus ?? "unknown";
-				const row = ` ${icon} ${name} ${status} · ticket ${padRight(w.ticketId, ticketW)} · ${theme.fg("muted", ticketStatus)} · pid ${w.pid}`;
+				const modelTag = w.model ? ` · ${theme.fg("accent", w.model)}` : "";
+				const row = ` ${icon} ${name} ${status} · ticket ${padRight(w.ticketId, ticketW)} · ${theme.fg("muted", ticketStatus)} · pid ${w.pid}${modelTag}`;
 				lines.push(truncateToWidth(row, width));
 				if (w.lastNote) {
 					const note = w.lastNote.replace(/\s+/g, " ").trim();

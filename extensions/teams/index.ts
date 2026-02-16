@@ -15,12 +15,12 @@ export default function (pi: ExtensionAPI) {
 	registerTeamsTool(pi, leader);
 
 	pi.registerCommand("team", {
-		description: "Team control: /team list | /team kill <name> | /team kill_all | /team delegate <worker>:<task> | /team thinking",
+		description: "Team control: /team list | /team kill <name> | /team kill_all | /team delegate <worker[@model]>:<task> | /team thinking",
 		handler: async (args, ctx) => {
 			const input = (args ?? "").trim();
 			const show = (text: string, type: "info" | "warning" | "error" = "info") => ctx.ui.notify(text, type);
 			if (!input || input === "help") {
-				show("/team list | /team kill <name> | /team kill_all | /team delegate <worker>:<task> | /team thinking");
+				show("/team list | /team kill <name> | /team kill_all | /team delegate <worker[@model]>:<task> | /team thinking");
 				return;
 			}
 
@@ -53,19 +53,23 @@ export default function (pi: ExtensionAPI) {
 				const raw = input.slice(9).trim();
 				const sep = raw.indexOf(":");
 				if (sep <= 0) {
-					show("Usage: /team delegate <worker>:<task>", "warning");
+					show("Usage: /team delegate <worker[@model]>:<task>", "warning");
 					return;
 				}
-				const assignee = raw.slice(0, sep).trim();
+				const workerPart = raw.slice(0, sep).trim();
 				const text = raw.slice(sep + 1).trim();
-				if (!assignee || !text) {
-					show("Usage: /team delegate <worker>:<task>", "warning");
+				if (!workerPart || !text) {
+					show("Usage: /team delegate <worker[@model]>:<task>", "warning");
 					return;
 				}
+				// Parse worker@model syntax
+				const atIdx = workerPart.indexOf("@");
+				const assignee = atIdx > 0 ? workerPart.slice(0, atIdx) : workerPart;
+				const model = atIdx > 0 ? workerPart.slice(atIdx + 1) : undefined;
 				const res = await runTeamsAction(
 					pi,
 					leader,
-					{ action: "delegate", tasks: [{ text, assignee }], useWorktree: true },
+					{ action: "delegate", tasks: [{ text, assignee, model }], useWorktree: true },
 					ctx,
 				);
 				show(res.content[0]?.text ?? "", res.isError ? "error" : "info");
