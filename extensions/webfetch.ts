@@ -123,19 +123,18 @@ export default function (pi: ExtensionAPI) {
 			const format = params.format ?? "markdown";
 			const timeoutMs = Math.min((params.timeout ?? DEFAULT_TIMEOUT_MS / 1000) * 1000, MAX_TIMEOUT_MS);
 
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-			const abortListener = () => controller.abort();
-			signal?.addEventListener("abort", abortListener);
+			// AbortSignal.timeout is engine-level — guaranteed to fire even under event loop pressure,
+			// unlike setTimeout + controller.abort() which can miss during hung body reads.
+			const timeoutSignal = AbortSignal.timeout(timeoutMs);
+			const combinedSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal;
 
 			try {
 				const headers = createHeaders(format);
-				const initial = await fetch(params.url, { signal: controller.signal, headers });
+				const initial = await fetch(params.url, { signal: combinedSignal, headers });
 				const response =
 					initial.status === 403 && initial.headers.get("cf-mitigated") === "challenge"
 						? await fetch(params.url, {
-							signal: controller.signal,
+							signal: combinedSignal,
 							headers: { ...headers, "User-Agent": "pi-webfetch" },
 						})
 						: initial;
@@ -219,8 +218,7 @@ export default function (pi: ExtensionAPI) {
 					isError: true,
 				};
 			} finally {
-				clearTimeout(timeoutId);
-				signal?.removeEventListener("abort", abortListener);
+				// AbortSignal.timeout + AbortSignal.any handle cleanup automatically
 			}
 		},
 

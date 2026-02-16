@@ -708,33 +708,28 @@ function createToolBindings(cwd: string) {
 			if (!url.startsWith("http://") && !url.startsWith("https://")) {
 				throw new Error("URL must start with http:// or https://");
 			}
-			const controller = new AbortController();
-			const timer = setTimeout(() => controller.abort(), Math.min(timeout, 120) * 1000);
-			try {
-				const response = await fetch(url, {
-					signal: controller.signal,
-					headers: {
-						"User-Agent":
-							"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-						Accept: "text/html,text/plain,text/markdown,*/*",
-					},
-				});
-				if (!response.ok) {
-					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-				}
-				const html = await response.text();
-
-				if (format === "html") return html;
-				if (format === "markdown") return turndown.turndown(html);
-				// text: strip tags
-				return html
-					.replace(/<\s*(script|style|noscript)[^>]*>[\s\S]*?<\s*\/\1\s*>/gi, " ")
-					.replace(/<[^>]+>/g, " ")
-					.replace(/\s+/g, " ")
-					.trim();
-			} finally {
-				clearTimeout(timer);
+			const signal = AbortSignal.timeout(Math.min(timeout, 120) * 1000);
+			const response = await fetch(url, {
+				signal,
+				headers: {
+					"User-Agent":
+						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+					Accept: "text/html,text/plain,text/markdown,*/*",
+				},
+			});
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 			}
+			const html = await response.text();
+
+			if (format === "html") return html;
+			if (format === "markdown") return turndown.turndown(html);
+			// text: strip tags
+			return html
+				.replace(/<\s*(script|style|noscript)[^>]*>[\s\S]*?<\s*\/\1\s*>/gi, " ")
+				.replace(/<[^>]+>/g, " ")
+				.replace(/\s+/g, " ")
+				.trim();
 		},
 
 		sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
