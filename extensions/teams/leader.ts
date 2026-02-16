@@ -58,6 +58,9 @@ export class TeamLeader {
       cwd = wtPath;
     }
 
+    // Resolve effective model: verify requested model is available, fall back to leader's
+    const effectiveModel = this.resolveWorkerModel(model);
+
     const sessionFile = this.ctx.sessionManager.getSessionFile() ?? "";
     const config: SpawnConfig = {
       ticketId,
@@ -65,7 +68,7 @@ export class TeamLeader {
       useWorktree,
       cwd,
       leaderSessionFile: sessionFile,
-      model,
+      model: effectiveModel,
     };
 
     const { process: child, handle } = spawnWorker(config);
@@ -271,6 +274,38 @@ export class TeamLeader {
       }
       this.renderWidget();
     }, 60_000);
+  }
+
+  /**
+   * Resolve the effective model for a worker.
+   * If the requested model is available, use it. Otherwise fall back to the leader's current model.
+   * If neither is set, returns undefined (worker inherits pi's default).
+   */
+  private resolveWorkerModel(requested?: string): string | undefined {
+    if (!requested || !this.ctx) return requested;
+
+    const available = this.ctx.modelRegistry.getAvailable();
+    const needle = requested.toLowerCase();
+    const found = available.some(m =>
+      `${m.provider}/${m.id}`.toLowerCase() === needle || m.id.toLowerCase() === needle,
+    );
+
+    if (found) return requested;
+
+    // Fall back to leader's current model
+    const leader = this.ctx.model;
+    const fallback = leader ? `${leader.provider}/${leader.id}` : undefined;
+
+    this.pi.sendMessage(
+      {
+        customType: "team-event",
+        content: `⚠ Model "${requested}" not available — falling back to ${fallback ?? "default"}`,
+        display: true,
+      },
+      { deliverAs: "followUp", triggerTurn: false },
+    );
+
+    return fallback;
   }
 
   clearWidget() {
