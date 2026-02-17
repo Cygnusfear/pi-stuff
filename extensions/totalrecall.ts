@@ -8,6 +8,7 @@
  *
  * Auto-capture: on session compaction, saves the summary as a memory node.
  * Auto-context: on agent start, injects relevant memories into the system prompt.
+ * Pub/sub: subscribe to nodes/entities/topics and get notified of related updates.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -83,6 +84,27 @@ interface CreateDetails {
 	oneLiner: string;
 	exit: "ok" | "error";
 	error?: string;
+}
+
+interface SubscribeDetails {
+	subscriptionId: string;
+	watching: string;
+	exit: "ok" | "error";
+	error?: string;
+}
+
+interface UnsubscribeDetails {
+	subscriptionId: string;
+	exit: "ok" | "error";
+	error?: string;
+}
+
+interface CheckUpdatesDetails {
+	updateCount: number;
+	exit: "ok" | "error";
+	error?: string;
+	summaryLines: string[];
+	fullText: string;
 }
 
 // =============================================================================
@@ -192,10 +214,14 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	asyncFetch(`totalrecall recent -o json -l 10`);
 
 	pi.on("before_agent_start", async (event: any, _ctx: any) => {
-		if (!memoriesBlock) return;
-		const block = memoriesBlock;
-		memoriesBlock = null;
-		return { systemPrompt: event.systemPrompt + block };
+		let extra = "";
+		if (memoriesBlock) {
+			extra += memoriesBlock;
+			memoriesBlock = null;
+		}
+
+		if (!extra) return;
+		return { systemPrompt: event.systemPrompt + extra };
 	});
 
 	// =========================================================================
@@ -649,6 +675,296 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 					if (content) text += "\n\n" + content;
 				} catch {}
 			}
+			return new Text(text, 0, 0);
+		},
+	});
+
+	// =========================================================================
+	// Pub/Sub: subscribe, unsubscribe, check-updates
+	// =========================================================================
+
+	// Subscriber identity — scoped to this pi session.
+	// Subscriptions auto-cleanup on session shutdown.
+	const subscriberId = `pi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+	// Start background polling — check every 30s for subscription updates.
+	// Use session_start (fires on both startup AND /reload) so the timer
+	// gets recreated with fresh code on each reload.
+	let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+	pi.on("session_start", (_event: any, _ctx: any) => {
+		if (pollTimer) clearInterval(pollTimer);
+		pollTimer = setInterval(() => checkUpdatesAsync(), 30_000);
+		// Also check immediately on session start / reload
+		checkUpdatesAsync();
+	});
+
+	// Cleanup: unsubscribe all this session's subscriptions on shutdown
+	pi.on("session_shutdown" as any, () => {
+		if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+		// Best-effort cleanup — fire and forget
+		try {
+			// Try bulk cleanup first (needs totalrecall-rs support)
+			runTotalRecallAsync(`subscriptions cleanup --subscriber ${esc(subscriberId)} -o json`);
+		} catch {
+			// Fallback: silently fail if command doesn't exist yet
+		}
+	});
+
+	function checkUpdatesAsync(): void {
+		const args = `check-updates -o json --subscriber ${esc(subscriberId)}`;
+		const child = spawn("sh", ["-c", `totalrecall ${args}`], {
+			stdio: ["pipe", "pipe", "pipe"],
+			env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
+		});
+		let out = "";
+		child.stdout?.on("data", (d: Buffer) => { out += d.toString(); });
+		child.on("close", (code) => {
+			if (code !== 0) return;
+			try {
+				const data = JSON.parse(out);
+				const updates = data.updates || [];
+				if (updates.length === 0) return;
+
+				const lines = updates.map((u: any) =>
+					`- ${typeEmoji(u.node_type || "summary")} ${u.message || u.one_liner || u.reason || "new related node"} (${(u.trigger_node_id || "").slice(0, 8)}…)`
+				);
+
+				// Push into the conversation — agent sees it and can act on it
+				const updateBlock = lines.join("\n");
+				pi.sendMessage({
+					customType: "memory-update",
+					content: `[memory-update] ${updates.length} subscription update${updates.length === 1 ? "" : "s"}:\n${updateBlock}`,
+					display: true,
+				}, {
+					triggerTurn: true,
+					deliverAs: "followUp",
+				});
+			} catch (err) {
+				// Log errors so we can debug — don't silently swallow
+				console.error("[totalrecall-pubsub]", err);
+			}
+		});
+	}
+
+	// Fire off an update check at load time
+	checkUpdatesAsync();
+
+	// -------------------------------------------------------------------------
+	// memory_subscribe — watch a node, entity, or topic for related updates
+	// -------------------------------------------------------------------------
+
+	pi.registerTool({
+		name: "memory_subscribe",
+		label: "TotalRecall Subscribe",
+		description:
+			"Subscribe to a memory node, entity, or topic. You'll be notified when new related nodes are created. " +
+			"Use to stay informed about evolving topics across sessions and agents.",
+		parameters: Type.Object({
+			nodeId: Type.Optional(Type.String({ description: "Node UUID to watch for related nodes" })),
+			entity: Type.Optional(Type.String({ description: "Entity name to watch (e.g. 'TotalRecall', 'LOCOMO eval')" })),
+			topic: Type.Optional(Type.String({ description: "Topic/search query to watch (semantic matching)" })),
+			subscriber: Type.Optional(Type.String({ description: "Subscriber identifier (defaults to current session)" })),
+		}),
+
+		async execute(_toolCallId, params: any, _signal) {
+			try {
+				if (!params.nodeId && !params.entity && !params.topic) {
+					return {
+						content: [{ type: "text" as const, text: "Error: provide at least one of nodeId, entity, or topic" }],
+						details: { subscriptionId: "", watching: "", exit: "error", error: "missing target" } satisfies SubscribeDetails,
+						isError: true,
+					};
+				}
+
+				const args = ["subscribe -o json"];
+				if (params.nodeId) args.push(`--node ${esc(params.nodeId)}`);
+				if (params.entity) args.push(`--entity ${esc(params.entity)}`);
+				if (params.topic) args.push(`--topic ${esc(params.topic)}`);
+				args.push(`--subscriber ${esc(params.subscriber || subscriberId)}`);
+
+				const raw = runTotalRecall(args.join(" "));
+				const data = JSON.parse(raw);
+
+				const watching = params.nodeId
+					? `node:${params.nodeId.slice(0, 8)}…`
+					: params.entity
+						? `entity:${params.entity}`
+						: `topic:${params.topic}`;
+
+				return {
+					content: [{ type: "text" as const, text: raw }],
+					details: {
+						subscriptionId: data.subscription_id || data.id || "",
+						watching,
+						exit: "ok",
+					} satisfies SubscribeDetails,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					content: [{ type: "text" as const, text: `TotalRecall error: ${message}` }],
+					details: { subscriptionId: "", watching: "", exit: "error", error: message } satisfies SubscribeDetails,
+					isError: true,
+				};
+			}
+		},
+
+		renderCall(args: any, theme: any) {
+			const target = args.nodeId
+				? `node ${(args.nodeId ?? "").slice(0, 8)}…`
+				: args.entity
+					? `entity "${args.entity}"`
+					: `topic "${args.topic}"`;
+			return new Text(
+				`${theme.fg("toolTitle", theme.bold("📡 subscribe"))} ${theme.fg("muted", target)}`,
+				0, 0,
+			);
+		},
+
+		renderResult(result: any, _options: any, theme: any) {
+			const details = result.details as SubscribeDetails | undefined;
+			if (!details) return new Text("", 0, 0);
+
+			if (details.exit === "error") {
+				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+			}
+
+			return new Text(
+				`${theme.fg("success", "✓")} watching ${details.watching}\n  ${theme.fg("dim", details.subscriptionId.slice(0, 8) + "…")}`,
+				0, 0,
+			);
+		},
+	});
+
+	// -------------------------------------------------------------------------
+	// memory_unsubscribe — stop watching
+	// -------------------------------------------------------------------------
+
+	pi.registerTool({
+		name: "memory_unsubscribe",
+		label: "TotalRecall Unsubscribe",
+		description: "Remove a memory subscription. Stop receiving notifications for a previously subscribed node/entity/topic.",
+		parameters: Type.Object({
+			subscriptionId: Type.String({ description: "Subscription ID to remove (from memory_subscribe result)" }),
+		}),
+
+		async execute(_toolCallId, params: any, _signal) {
+			try {
+				const raw = runTotalRecall(`unsubscribe -o json --id ${esc(params.subscriptionId)}`);
+				return {
+					content: [{ type: "text" as const, text: raw }],
+					details: { subscriptionId: params.subscriptionId, exit: "ok" } satisfies UnsubscribeDetails,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					content: [{ type: "text" as const, text: `TotalRecall error: ${message}` }],
+					details: { subscriptionId: params.subscriptionId, exit: "error", error: message } satisfies UnsubscribeDetails,
+					isError: true,
+				};
+			}
+		},
+
+		renderCall(args: any, theme: any) {
+			return new Text(
+				`${theme.fg("toolTitle", theme.bold("📡 unsubscribe"))} ${theme.fg("muted", (args.subscriptionId ?? "").slice(0, 8) + "…")}`,
+				0, 0,
+			);
+		},
+
+		renderResult(result: any, _options: any, theme: any) {
+			const details = result.details as UnsubscribeDetails | undefined;
+			if (!details) return new Text("", 0, 0);
+
+			if (details.exit === "error") {
+				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+			}
+
+			return new Text(`${theme.fg("success", "✓")} unsubscribed`, 0, 0);
+		},
+	});
+
+	// -------------------------------------------------------------------------
+	// memory_check_updates — poll for subscription notifications
+	// -------------------------------------------------------------------------
+
+	pi.registerTool({
+		name: "memory_check_updates",
+		label: "TotalRecall Check Updates",
+		description:
+			"Check for new notifications from memory subscriptions. Returns unread updates about nodes/entities/topics " +
+			"you're watching. Marks returned notifications as read.",
+		parameters: Type.Object({
+			subscriber: Type.Optional(Type.String({ description: "Subscriber identifier (defaults to all)" })),
+		}),
+
+		async execute(_toolCallId, params: any, _signal) {
+			try {
+				const args = ["check-updates -o json"];
+				if (params.subscriber) args.push(`--subscriber ${esc(params.subscriber)}`);
+
+				const raw = runTotalRecall(args.join(" "));
+				const data = JSON.parse(raw);
+				const updates = data.updates || [];
+
+				const summaryLines = updates.map((u: any) =>
+					`${typeEmoji(u.node_type || "summary")} ${(u.message || u.one_liner || u.reason || "").slice(0, 90)} (${(u.trigger_node_id || "").slice(0, 8)}…)`
+				);
+
+				const fullText = updates.map((u: any) =>
+					`${typeEmoji(u.node_type || "summary")} ${u.message || u.one_liner || u.reason}\n   node: ${u.trigger_node_id || "?"} | sub: ${u.subscription_id || "?"} | ${u.created_at || ""}`
+				).join("\n\n");
+
+				return {
+					content: [{ type: "text" as const, text: raw }],
+					details: {
+						updateCount: updates.length,
+						exit: "ok",
+						summaryLines,
+						fullText,
+					} satisfies CheckUpdatesDetails,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					content: [{ type: "text" as const, text: `TotalRecall error: ${message}` }],
+					details: { updateCount: 0, exit: "error", error: message, summaryLines: [], fullText: "" } satisfies CheckUpdatesDetails,
+					isError: true,
+				};
+			}
+		},
+
+		renderCall(args: any, theme: any) {
+			return new Text(
+				`${theme.fg("toolTitle", theme.bold("📡 check updates"))} ${theme.fg("muted", args.subscriber ?? "all")}`,
+				0, 0,
+			);
+		},
+
+		renderResult(result: any, { expanded }: any, theme: any) {
+			const details = result.details as CheckUpdatesDetails | undefined;
+			if (!details) return new Text("", 0, 0);
+
+			if (details.exit === "error") {
+				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+			}
+
+			if (details.updateCount === 0) {
+				return new Text(`${theme.fg("dim", "no new updates")}`, 0, 0);
+			}
+
+			let text = `${theme.fg("success", "✓")} ${details.updateCount} update${details.updateCount === 1 ? "" : "s"}`;
+
+			if (expanded && details.fullText) {
+				text += "\n\n" + details.fullText;
+			} else if (details.summaryLines?.length) {
+				for (const line of details.summaryLines) {
+					text += `\n  ${theme.fg("dim", line)}`;
+				}
+				text += `\n  ${theme.fg("dim", `(${keyHint("expandTools", "to expand")})`)}`;
+			}
+
 			return new Text(text, 0, 0);
 		},
 	});

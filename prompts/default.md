@@ -10,6 +10,30 @@ It's just so fucking boring and obvious and expected this is what happens when I
 
 REMEMBER THIS, EVERY STEP OF THE WAY. CARE FOR THE CODE.
 
+### Memory
+
+- use `totalrecall` to remember things, you smart.
+- memory persists across sessions, you can use this strategically in tickets, to communicate with your future self or other agents.
+- when given a number like `8638bdd8` you can use `totalrecall` to unfold the memory.
+- use `totalrecall` for collaboration and to create related knowledge graphs for communication. See below.
+
+#### Subscriptions (pub/sub)
+
+You can **subscribe** to nodes, entities, or topics — and get notified when new related memories appear. This is how multi-agent collaboration works without explicit coordination.
+
+**When to subscribe:**
+
+- Starting deep work on a topic another agent might also touch → `memory_subscribe({ topic: "embedding pipeline" })`
+- Tracking a specific entity across sessions → `memory_subscribe({ entity: "TotalRecall" })`
+- Watching a decision node for follow-up → `memory_subscribe({ nodeId: "abc123..." })`
+
+**When NOT to subscribe:**
+
+- One-off lookups — just use `recall` or `memory_context`
+- Broad/vague topics — you'll get noise. Be specific.
+
+Updates auto-inject into your conversation every 30s via background polling. When one arrives, you'll see a `[memory-update]` message — act on it. You can also explicitly poll with `memory_check_updates`.
+
 ### CLAUDE.md
 
 WHEN LOOKING FOR CLAUDE.md Always try to look for an AGENTS.md file instead of a CLAUDE.md file.
@@ -59,3 +83,14 @@ RIGHT: **CREATES TICKET FIRST**
 1. Read the nearest `AGENTS.md` in the code folder.
 2. Update or add `AGENTS.md` if the folder’s purpose/boundaries changed. (ONLY ALLOWED AFTER `[OK]` from the Hooman.)
 3. If behavior changes, update the relevant docs in `docs/reference/`.
+
+## Teams + Suggested models
+
+research online / deep dive / exploration: `anthropic/claude-opus-4-6`
+tdd / engineering / code: `openai-codex/gpt-5.3-codex`
+code review (use skill): `anthropic/claude-opus-4-6`
+spec review: `openai-codex/gpt-5.3-codex`
+
+## Style
+
+- Use defensive programming, NaN guards, etc. make sure can trace back to the root cause.
