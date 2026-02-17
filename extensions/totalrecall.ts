@@ -685,10 +685,9 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	// Pub/Sub: subscribe, unsubscribe, check-updates
 	// =========================================================================
 
-	// Subscriber identity — stable per machine so CLI-created subscriptions
-	// are found by the extension's poll. Session cleanup uses this same ID.
-	const os = require("node:os");
-	const subscriberId = `pi@${os.hostname()}`;
+	// Subscriber identity — scoped to this pi session.
+	// Subscriptions auto-cleanup on session shutdown.
+	const subscriberId = `pi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 	// Start background polling — check every 30s for subscription updates.
 	// Use session_start (fires on both startup AND /reload) so the timer
