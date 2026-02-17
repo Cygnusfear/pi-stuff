@@ -1,6 +1,11 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { createWorktree, removeWorktree, worktreeBranchName } from "../../extensions/teams/worktree";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import {
+	createWorktree,
+	removeWorktree,
+	worktreeBranchName,
+	branchHasNewCommits,
+} from "../../extensions/teams/worktree";
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
@@ -43,9 +48,59 @@ describe("createWorktree + removeWorktree", () => {
 		expect(existsSync(wtPath)).toBe(false);
 	});
 
+	test("keepBranch=true preserves branch after worktree removal", async () => {
+		const repo = initRepo();
+		const wtPath = path.join(tmpDir, ".pi-teams", "bob");
+		await createWorktree(repo, "bob", "p-xyz", wtPath);
+
+		const branch = worktreeBranchName("bob", "p-xyz");
+		await removeWorktree(repo, wtPath, branch, true);
+		expect(existsSync(wtPath)).toBe(false);
+
+		// Branch should still exist
+		const branches = execSync("git branch", { cwd: repo, encoding: "utf-8" });
+		expect(branches).toContain("teams/bob/p-xyz");
+	});
+
 	test("returns error on invalid repo", async () => {
 		const result = await createWorktree("/nonexistent", "bob", "p-xyz", "/tmp/nope");
 		expect(result.success).toBe(false);
 		expect(result.error).toBeDefined();
+	});
+});
+
+describe("branchHasNewCommits", () => {
+	test("returns false when branch has no new commits", async () => {
+		const repo = initRepo();
+		const wtPath = path.join(tmpDir, ".pi-teams", "carol");
+		await createWorktree(repo, "carol", "p-123", wtPath);
+
+		const branch = worktreeBranchName("carol", "p-123");
+		const hasWork = await branchHasNewCommits(repo, branch);
+		expect(hasWork).toBe(false);
+
+		await removeWorktree(repo, wtPath, branch);
+	});
+
+	test("returns true when branch has commits ahead of HEAD", async () => {
+		const repo = initRepo();
+		const wtPath = path.join(tmpDir, ".pi-teams", "dave");
+		await createWorktree(repo, "dave", "p-456", wtPath);
+
+		// Make a commit in the worktree
+		writeFileSync(path.join(wtPath, "work.txt"), "worker output");
+		execSync("git add . && git commit -m 'worker did stuff'", { cwd: wtPath, stdio: "pipe" });
+
+		const branch = worktreeBranchName("dave", "p-456");
+		const hasWork = await branchHasNewCommits(repo, branch);
+		expect(hasWork).toBe(true);
+
+		await removeWorktree(repo, wtPath, branch);
+	});
+
+	test("returns false for nonexistent branch", async () => {
+		const repo = initRepo();
+		const hasWork = await branchHasNewCommits(repo, "nonexistent-branch");
+		expect(hasWork).toBe(false);
 	});
 });

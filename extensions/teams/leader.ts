@@ -184,17 +184,29 @@ export class TeamLeader {
     worker.lastNote = lastNote;
     worker.lastActivityAt = Date.now();
 
-    this.notifyLLM(
-      isSuccess
-        ? { type: "completed", worker: { ...worker }, result: lastNote }
-        : {
-            type: "failed",
-            worker: { ...worker },
-            reason: `process exited (code ${exitCode}). Last note: ${lastNote}`,
-          },
-    );
+    // Cleanup worktree but PRESERVE branches with unmerged commits.
+    // Never auto-merge — the coordinator must explicitly merge after review.
+    const preserveBranch = isSuccess && worker.worktreePath !== null;
+    const cleanupResult = await cleanupWorker(this.ctx.cwd, worker, preserveBranch).catch(() => undefined);
 
-    await cleanupWorker(this.ctx.cwd, worker).catch(() => {});
+    if (isSuccess) {
+      const branch = `teams/${worker.name}/${worker.ticketId}`;
+      const hasBranch = cleanupResult?.branchPreserved;
+      const mergeHint = hasBranch
+        ? `\n📌 Branch "${branch}" preserved — merge when ready: git merge ${branch}`
+        : "";
+      this.notifyLLM({
+        type: "completed",
+        worker: { ...worker },
+        result: `${lastNote}${mergeHint}`,
+      });
+    } else {
+      this.notifyLLM({
+        type: "failed",
+        worker: { ...worker },
+        reason: `process exited (code ${exitCode}). Last note: ${lastNote}`,
+      });
+    }
     this.childProcesses.delete(name);
 
     const hasActive = [...this.workers.values()].some(

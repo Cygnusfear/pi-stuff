@@ -22,20 +22,39 @@ export async function createWorktree(
 	}
 }
 
+/**
+ * Check if a branch has commits ahead of the current HEAD.
+ * Returns true if the branch has work that needs merging.
+ */
+export async function branchHasNewCommits(
+	repoDir: string,
+	branch: string,
+): Promise<boolean> {
+	try {
+		const { stdout } = await exec("git", ["rev-list", "--count", `HEAD..${branch}`], { cwd: repoDir });
+		return parseInt(stdout.trim(), 10) > 0;
+	} catch {
+		return false;
+	}
+}
+
 export async function removeWorktree(
 	repoDir: string,
 	worktreePath: string,
 	branch: string,
+	keepBranch = false,
 ): Promise<{ success: boolean; error?: string }> {
 	try {
 		await exec("git", ["worktree", "remove", worktreePath, "--force"], { cwd: repoDir });
 	} catch {
 		// worktree may already be gone
 	}
-	try {
-		await exec("git", ["branch", "-D", branch], { cwd: repoDir });
-	} catch {
-		// branch may already be gone
+	if (!keepBranch) {
+		try {
+			await exec("git", ["branch", "-D", branch], { cwd: repoDir });
+		} catch {
+			// branch may already be gone
+		}
 	}
 	return { success: true };
 }
