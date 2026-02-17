@@ -308,10 +308,12 @@ export class TeamLeader {
     const leader = this.ctx.model;
     const fallback = leader ? `${leader.provider}/${leader.id}` : undefined;
 
+    const modelList = available.map(m => `${m.provider}/${m.id}`).join(", ");
+
     this.pi.sendMessage(
       {
         customType: "team-event",
-        content: `⚠ Model "${requested}" not available — falling back to ${fallback ?? "default"}`,
+        content: `⚠ Model "${requested}" not available — falling back to ${fallback ?? "default"}.\nAvailable models: ${modelList}`,
         display: true,
       },
       { deliverAs: "followUp", triggerTurn: false },

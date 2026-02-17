@@ -27,6 +27,13 @@ type TeamsActionParams = {
 	useWorktree?: boolean;
 };
 
+function formatAvailableModels(ctx: ExtensionContext): string {
+	const models = ctx.modelRegistry.getAvailable();
+	if (models.length === 0) return "";
+	const list = models.map(m => `${m.provider}/${m.id}`).join(", ");
+	return `\nAvailable models: ${list}`;
+}
+
 async function runTeamsAction(pi: ExtensionAPI, leader: TeamLeader, params: TeamsActionParams, ctx: ExtensionContext) {
 	leader.setContext(ctx);
 	const action = params.action ?? "delegate";
@@ -92,7 +99,8 @@ async function runTeamsAction(pi: ExtensionAPI, leader: TeamLeader, params: Team
 		}
 
 		leader.startPolling();
-		return { content: [{ type: "text" as const, text: results.join("\n") }] };
+		const modelList = formatAvailableModels(ctx);
+		return { content: [{ type: "text" as const, text: results.join("\n") + modelList }] };
 	}
 
 	return { content: [{ type: "text" as const, text: `Unknown action: ${action}` }], isError: true };
