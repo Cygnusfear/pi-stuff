@@ -256,6 +256,7 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 				`-1 ${esc(oneLiner)}`,
 				`-s ${esc(truncatedSummary)}`,
 				`--repo ${esc(repo)}`,
+				`--session-id ${esc(subscriberId)}`,
 			].join(" "));
 		} catch {
 			// Silently fail — don't break compaction
@@ -298,6 +299,7 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 				`-1 ${esc(oneLiner)}`,
 				`-s ${esc(summary)}`,
 				`--repo ${esc(repo)}`,
+				`--session-id ${esc(subscriberId)}`,
 			].join(" "));
 		} catch {
 			// Silent — don't break the session
