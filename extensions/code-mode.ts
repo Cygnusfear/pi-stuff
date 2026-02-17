@@ -11,7 +11,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import vm from "node:vm";
-import { spawnSync, execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -603,6 +603,95 @@ function resolvePath(filePath: string, cwd: string): string {
 	return path.resolve(cwd, filePath);
 }
 
+interface SpawnAsyncOptions {
+	cmd: string;
+	args: string[];
+	cwd?: string;
+	timeout?: number;
+	env?: NodeJS.ProcessEnv;
+}
+
+interface SpawnAsyncResult {
+	stdout: string;
+	stderr: string;
+	status: number | null;
+	error?: Error;
+}
+
+/**
+ * Async spawn that doesn't block the event loop.
+ * Drop-in replacement for spawnSync with the same result shape.
+ */
+function spawnAsync({
+	cmd,
+	args,
+	cwd: spawnCwd,
+	timeout = SUBPROCESS_TIMEOUT_MS,
+	env,
+}: SpawnAsyncOptions): Promise<SpawnAsyncResult> {
+	return new Promise((resolve) => {
+		const stdoutChunks: Buffer[] = [];
+		const stderrChunks: Buffer[] = [];
+		let stdoutLen = 0;
+		let stderrLen = 0;
+		let settled = false;
+
+		const child = spawn(cmd, args, {
+			cwd: spawnCwd,
+			env,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+
+		const timer = setTimeout(() => {
+			if (!settled) {
+				settled = true;
+				child.kill("SIGKILL");
+				resolve({
+					stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
+					stderr: Buffer.concat(stderrChunks).toString("utf-8"),
+					status: null,
+					error: new Error(`Timed out after ${timeout}ms`),
+				});
+			}
+		}, timeout);
+
+		child.stdout!.on("data", (chunk: Buffer) => {
+			stdoutLen += chunk.length;
+			if (stdoutLen <= MAX_BUFFER) stdoutChunks.push(chunk);
+		});
+
+		child.stderr!.on("data", (chunk: Buffer) => {
+			stderrLen += chunk.length;
+			if (stderrLen <= MAX_BUFFER) stderrChunks.push(chunk);
+		});
+
+		child.on("error", (err) => {
+			if (!settled) {
+				settled = true;
+				clearTimeout(timer);
+				resolve({
+					stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
+					stderr: Buffer.concat(stderrChunks).toString("utf-8"),
+					status: null,
+					error: err,
+				});
+			}
+		});
+
+		child.on("close", (code) => {
+			if (!settled) {
+				settled = true;
+				clearTimeout(timer);
+				resolve({
+					stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
+					stderr: Buffer.concat(stderrChunks).toString("utf-8"),
+					status: code,
+				});
+			}
+		});
+	});
+}
+
 function createToolBindings(cwd: string) {
 	const turndown = new TurndownService({
 		headingStyle: "atx",
@@ -616,11 +705,11 @@ function createToolBindings(cwd: string) {
 	return {
 		Bash: async ({ command, timeout }: { command: string; timeout?: number }) => {
 			const timeoutMs = timeout ? timeout * 1000 : SUBPROCESS_TIMEOUT_MS;
-			const result = spawnSync("sh", ["-c", command], {
+			const result = await spawnAsync({
+				cmd: "sh",
+				args: ["-c", command],
 				cwd,
 				timeout: timeoutMs,
-				maxBuffer: MAX_BUFFER,
-				encoding: "utf-8",
 			});
 			if (result.error) {
 				throw new Error(`Bash error: ${result.error.message}`);
@@ -663,11 +752,10 @@ function createToolBindings(cwd: string) {
 
 		Glob: async ({ pattern, path: searchPath }: { pattern: string; path?: string }) => {
 			const dir = searchPath ? resolvePath(searchPath, cwd) : cwd;
-			const result = spawnSync("fd", ["--glob", pattern, "--type", "f", "."], {
+			const result = await spawnAsync({
+				cmd: "fd",
+				args: ["--glob", pattern, "--type", "f", "."],
 				cwd: dir,
-				encoding: "utf-8",
-				timeout: SUBPROCESS_TIMEOUT_MS,
-				maxBuffer: MAX_BUFFER,
 			});
 			if (result.error) {
 				throw new Error(`Glob failed: ${result.error.message}`);
@@ -677,11 +765,10 @@ function createToolBindings(cwd: string) {
 
 		rg: async ({ args, cwd: explicitCwd }: { args: string; cwd?: string }) => {
 			const dir = explicitCwd ? resolvePath(explicitCwd, cwd) : cwd;
-			const result = spawnSync("sh", ["-c", `rg ${args}`], {
+			const result = await spawnAsync({
+				cmd: "sh",
+				args: ["-c", `rg ${args}`],
 				cwd: dir,
-				encoding: "utf-8",
-				timeout: SUBPROCESS_TIMEOUT_MS,
-				maxBuffer: MAX_BUFFER,
 			});
 			if (result.error) {
 				throw new Error(`rg error: ${result.error.message}`);
@@ -692,11 +779,10 @@ function createToolBindings(cwd: string) {
 
 		fd: async ({ args, cwd: explicitCwd }: { args: string; cwd?: string }) => {
 			const dir = explicitCwd ? resolvePath(explicitCwd, cwd) : cwd;
-			const result = spawnSync("sh", ["-c", `fd ${args}`], {
+			const result = await spawnAsync({
+				cmd: "sh",
+				args: ["-c", `fd ${args}`],
 				cwd: dir,
-				encoding: "utf-8",
-				timeout: SUBPROCESS_TIMEOUT_MS,
-				maxBuffer: MAX_BUFFER,
 			});
 			if (result.error) {
 				throw new Error(`fd error: ${result.error.message}`);
@@ -740,11 +826,10 @@ function createToolBindings(cwd: string) {
 
 		tk: async ({ args = "ls", cwd: explicitCwd }: { args?: string; cwd?: string }) => {
 			const dir = explicitCwd ? resolvePath(explicitCwd, cwd) : cwd;
-			const result = spawnSync("sh", ["-c", `tk ${args}`], {
+			const result = await spawnAsync({
+				cmd: "sh",
+				args: ["-c", `tk ${args}`],
 				cwd: dir,
-				encoding: "utf-8",
-				timeout: SUBPROCESS_TIMEOUT_MS,
-				maxBuffer: MAX_BUFFER,
 			});
 			if (result.error) throw new Error(`tk error: ${result.error.message}`);
 			const stdout = (result.stdout || "") + (result.stderr ? "\n" + result.stderr : "");
@@ -779,11 +864,11 @@ function createToolBindings(cwd: string) {
 			const dir = explicitCwd ? resolvePath(explicitCwd, cwd) : cwd;
 
 			// Create ticket
-			const createResult = spawnSync(
-				"tk",
-				["create", title, "-t", type, "-p", String(priority), "--tags", tags, "-d", description],
-				{ cwd: dir, encoding: "utf-8", timeout: SUBPROCESS_TIMEOUT_MS, maxBuffer: MAX_BUFFER },
-			);
+			const createResult = await spawnAsync({
+				cmd: "tk",
+				args: ["create", title, "-t", type, "-p", String(priority), "--tags", tags, "-d", description],
+				cwd: dir,
+			});
 			if (createResult.error) throw new Error(`tk create error: ${createResult.error.message}`);
 			if (createResult.status !== 0) {
 				throw new Error(`tk create failed: ${(createResult.stderr || createResult.stdout || "").trim()}`);
@@ -795,11 +880,10 @@ function createToolBindings(cwd: string) {
 			// Start ticket
 			let started = false;
 			if (start) {
-				const startResult = spawnSync("tk", ["start", id], {
+				const startResult = await spawnAsync({
+					cmd: "tk",
+					args: ["start", id],
 					cwd: dir,
-					encoding: "utf-8",
-					timeout: SUBPROCESS_TIMEOUT_MS,
-					maxBuffer: MAX_BUFFER,
 				});
 				started = startResult.status === 0;
 			}
@@ -849,10 +933,9 @@ function createToolBindings(cwd: string) {
 			if (minScore) args.push(`-m ${minScore}`);
 			if (nodeType) args.push(`-t ${nodeType}`);
 			args.push(shellEsc(query));
-			const result = spawnSync("sh", ["-c", `totalrecall ${args.join(" ")}`], {
-				encoding: "utf-8",
-				timeout: SUBPROCESS_TIMEOUT_MS,
-				maxBuffer: MAX_BUFFER,
+			const result = await spawnAsync({
+				cmd: "sh",
+				args: ["-c", `totalrecall ${args.join(" ")}`],
 				env: TOTALRECALL_ENV,
 			});
 			if (result.error) throw new Error(`totalrecall error: ${result.error.message}`);
@@ -862,16 +945,11 @@ function createToolBindings(cwd: string) {
 		},
 
 		memoryContext: async ({ task, maxNodes = 10 }: { task: string; maxNodes?: number }) => {
-			const result = spawnSync(
-				"sh",
-				["-c", `totalrecall context -o json -t ${shellEsc(task)} -n ${maxNodes}`],
-				{
-					encoding: "utf-8",
-					timeout: SUBPROCESS_TIMEOUT_MS,
-					maxBuffer: MAX_BUFFER,
-					env: TOTALRECALL_ENV,
-				},
-			);
+			const result = await spawnAsync({
+				cmd: "sh",
+				args: ["-c", `totalrecall context -o json -t ${shellEsc(task)} -n ${maxNodes}`],
+				env: TOTALRECALL_ENV,
+			});
 			if (result.error) throw new Error(`totalrecall error: ${result.error.message}`);
 			if (result.status !== 0)
 				throw new Error(`totalrecall error: ${(result.stderr || result.stdout || "").trim()}`);
@@ -903,10 +981,9 @@ function createToolBindings(cwd: string) {
 			if (entityName) args.push(`-e ${shellEsc(entityName)}`);
 			if (repo) args.push(`--repo ${shellEsc(repo)}`);
 
-			const result = spawnSync("sh", ["-c", `totalrecall ${args.join(" ")}`], {
-				encoding: "utf-8",
-				timeout: SUBPROCESS_TIMEOUT_MS,
-				maxBuffer: MAX_BUFFER,
+			const result = await spawnAsync({
+				cmd: "sh",
+				args: ["-c", `totalrecall ${args.join(" ")}`],
 				env: TOTALRECALL_ENV,
 			});
 			if (result.error) throw new Error(`totalrecall error: ${result.error.message}`);
@@ -916,16 +993,11 @@ function createToolBindings(cwd: string) {
 		},
 
 		memoryUnfold: async ({ nodeId, depth = "full" }: { nodeId: string; depth?: string }) => {
-			const result = spawnSync(
-				"sh",
-				["-c", `totalrecall unfold -o json -d ${depth} ${shellEsc(nodeId)}`],
-				{
-					encoding: "utf-8",
-					timeout: SUBPROCESS_TIMEOUT_MS,
-					maxBuffer: MAX_BUFFER,
-					env: TOTALRECALL_ENV,
-				},
-			);
+			const result = await spawnAsync({
+				cmd: "sh",
+				args: ["-c", `totalrecall unfold -o json -d ${depth} ${shellEsc(nodeId)}`],
+				env: TOTALRECALL_ENV,
+			});
 			if (result.error) throw new Error(`totalrecall error: ${result.error.message}`);
 			if (result.status !== 0)
 				throw new Error(`totalrecall error: ${(result.stderr || result.stdout || "").trim()}`);
@@ -933,10 +1005,9 @@ function createToolBindings(cwd: string) {
 		},
 
 		memoryStatus: async () => {
-			const result = spawnSync("sh", ["-c", "totalrecall status -o json"], {
-				encoding: "utf-8",
-				timeout: SUBPROCESS_TIMEOUT_MS,
-				maxBuffer: MAX_BUFFER,
+			const result = await spawnAsync({
+				cmd: "sh",
+				args: ["-c", "totalrecall status -o json"],
 				env: TOTALRECALL_ENV,
 			});
 			if (result.error) throw new Error(`totalrecall error: ${result.error.message}`);
