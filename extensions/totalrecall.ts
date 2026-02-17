@@ -582,7 +582,7 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 				];
 				if (params.fullSynthesis) args.push(`-f ${esc(params.fullSynthesis)}`);
 				if (params.entityName) args.push(`-e ${esc(params.entityName)}`);
-				if (params.sessionId) args.push(`--session-id ${esc(params.sessionId)}`);
+				args.push(`--session-id ${esc(params.sessionId || subscriberId)}`);
 				if (params.repo) args.push(`--repo ${esc(params.repo)}`);
 
 				const raw = runTotalRecall(args.join(" "));
