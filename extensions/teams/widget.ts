@@ -1,6 +1,7 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { Component, TUI } from "@mariozechner/pi-tui";
+import { formatRuntimeSummary } from "./activity.js";
 import type { WorkerHandle, WorkerStatus } from "./types.js";
 
 type WidgetColor = "warning" | "success" | "error" | "muted";
@@ -45,6 +46,14 @@ export function createTeamsWidget(getWorkers: () => WorkerHandle[]) {
 				const modelTag = w.model ? ` · ${theme.fg("accent", w.model)}` : "";
 				const row = ` ${icon} ${name} ${status} · ticket ${padRight(w.ticketId, ticketW)} · ${theme.fg("muted", ticketStatus)} · pid ${w.pid}${modelTag}`;
 				lines.push(truncateToWidth(row, width));
+				const activity = formatRuntimeSummary({
+					hasActiveChildProcess: w.hasActiveChildProcess,
+					activeChildProcessCount: w.activeChildProcessCount,
+					currentCommand: w.currentCommand,
+					currentCommandElapsedSeconds: w.currentCommandElapsedSeconds,
+					lastOutputAt: w.lastOutputAt,
+				});
+				lines.push(truncateToWidth(`   ${theme.fg("dim", "↳")} ${theme.fg("muted", activity)}`, width));
 				if (w.lastNote) {
 					const note = w.lastNote.replace(/\s+/g, " ").trim();
 					const noteRow = `   ${theme.fg("dim", "↳")} ${theme.fg("muted", note)}`;

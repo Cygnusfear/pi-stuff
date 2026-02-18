@@ -2,19 +2,28 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  evaluateIdleState,
+  formatRuntimeSummary,
+  sampleWorkerProcessSnapshot,
+} from "./activity.js";
 import { cleanupWorker } from "./cleanup.js";
 import { spawnWorker } from "./spawner.js";
 import { getNewNotes, parseTicketShow } from "./tickets.js";
 import type { PollEvent, SpawnConfig, WorkerHandle } from "./types.js";
-import { STUCK_THRESHOLD_MS } from "./types.js";
+import {
+  ACTIVITY_POLL_INTERVAL_MS,
+  STUCK_THRESHOLD_MS,
+  STUCK_WARNING_COOLDOWN_MS,
+} from "./types.js";
 import { createTeamsWidget } from "./widget.js";
-import { createWorktree } from "./worktree.js";
+import { createWorktree, workerWorktreePath } from "./worktree.js";
 
 export class TeamLeader {
   private workers = new Map<string, WorkerHandle>();
   private childProcesses = new Map<string, ChildProcess>();
   private fileWatchers = new Map<string, fs.FSWatcher>();
-  private stuckTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private activityTimers = new Map<string, ReturnType<typeof setInterval>>();
   private cleanupTimer: ReturnType<typeof setTimeout> | null = null;
   private pi: ExtensionAPI;
   private ctx: ExtensionContext | null = null;
@@ -31,9 +40,15 @@ export class TeamLeader {
     this.renderWidget();
   }
 
-  // Keep these as no-ops for backward compat with tool.ts
+  // Keep these for backward compat with tool.ts
   startPolling() {}
-  stopPolling() {}
+
+  stopPolling() {
+    for (const timer of this.activityTimers.values()) {
+      clearInterval(timer);
+    }
+    this.activityTimers.clear();
+  }
 
   async delegate(
     ticketId: string,
@@ -52,7 +67,7 @@ export class TeamLeader {
     let cwd = repoDir;
 
     if (useWorktree) {
-      const wtPath = path.join(repoDir, ".pi-teams", workerName);
+      const wtPath = workerWorktreePath(repoDir, workerName);
       const result = await createWorktree(repoDir, workerName, ticketId, wtPath);
       if (!result.success) throw new Error(`Worktree creation failed: ${result.error}`);
       cwd = wtPath;
@@ -84,8 +99,8 @@ export class TeamLeader {
     // Watch ticket file for progress notes
     this.watchTicketFile(workerName, handle);
 
-    // Stuck detection
-    this.resetStuckTimer(workerName, handle);
+    // Activity + stuck detection
+    this.startActivityMonitor(workerName, handle);
 
     this.renderWidget();
     return handle;
@@ -97,7 +112,7 @@ export class TeamLeader {
 
     try {
       const watcher = fs.watch(ticketPath, () => {
-        void this.handleTicketChange(name, worker);
+        void this.handleTicketChange(worker);
       });
       this.fileWatchers.set(name, watcher);
     } catch {
@@ -105,7 +120,7 @@ export class TeamLeader {
     }
   }
 
-  private async handleTicketChange(name: string, worker: WorkerHandle) {
+  private async handleTicketChange(worker: WorkerHandle) {
     if (!this.ctx) return;
     if (["done", "failed", "killed"].includes(worker.status)) return;
 
@@ -136,9 +151,10 @@ export class TeamLeader {
         });
       }
       if (newNotes.length > 0) {
+        const now = Date.now();
         worker.lastSeenCommentCount = ticket.notes.length;
-        worker.lastActivityAt = Date.now();
-        this.resetStuckTimer(name, worker);
+        worker.lastActivityAt = now;
+        worker.lastOutputAt = now;
       }
 
       this.renderWidget();
@@ -218,19 +234,91 @@ export class TeamLeader {
     this.renderWidget();
   }
 
-  private resetStuckTimer(name: string, worker: WorkerHandle) {
-    const existing = this.stuckTimers.get(name);
-    if (existing) clearTimeout(existing);
+  private startActivityMonitor(name: string, worker: WorkerHandle) {
+    this.stopActivityMonitor(name);
 
-    const timer = setTimeout(() => {
-      if (["done", "failed", "killed"].includes(worker.status)) return;
-      this.notifyLLM({
-        type: "stuck",
-        worker: { ...worker },
-        idleSeconds: Math.floor(STUCK_THRESHOLD_MS / 1000),
-      });
-    }, STUCK_THRESHOLD_MS);
-    this.stuckTimers.set(name, timer);
+    const tick = () => {
+      this.refreshWorkerActivity(name, worker);
+    };
+
+    tick();
+    const timer = setInterval(tick, ACTIVITY_POLL_INTERVAL_MS);
+    this.activityTimers.set(name, timer);
+  }
+
+  private stopActivityMonitor(name: string) {
+    const timer = this.activityTimers.get(name);
+    if (!timer) return;
+    clearInterval(timer);
+    this.activityTimers.delete(name);
+  }
+
+  private refreshSessionActivity(worker: WorkerHandle) {
+    try {
+      const stat = fs.statSync(worker.sessionFile);
+      const mtimeMs = stat.mtimeMs;
+      if (!Number.isFinite(mtimeMs)) return;
+      if (worker.lastSessionMtimeMs && mtimeMs <= worker.lastSessionMtimeMs) return;
+
+      worker.lastSessionMtimeMs = mtimeMs;
+      worker.lastOutputAt = mtimeMs;
+      worker.lastActivityAt = Math.max(worker.lastActivityAt, mtimeMs);
+    } catch {
+      // Session file may not exist yet.
+    }
+  }
+
+  private refreshWorkerActivity(name: string, worker: WorkerHandle) {
+    if (["done", "failed", "killed"].includes(worker.status)) {
+      this.stopActivityMonitor(name);
+      return;
+    }
+
+    const now = Date.now();
+    this.refreshSessionActivity(worker);
+
+    const snapshot = sampleWorkerProcessSnapshot(worker.pid);
+    if (!snapshot.rootAlive) {
+      return;
+    }
+
+    if (worker.status === "spawning") {
+      worker.status = "running";
+    }
+
+    worker.hasActiveChildProcess = snapshot.hasActiveChildProcess;
+    worker.activeChildProcessCount = snapshot.activeChildProcessCount;
+    worker.currentCommand = snapshot.currentCommand;
+    worker.currentCommandElapsedSeconds = snapshot.currentCommandElapsedSeconds;
+
+    if (snapshot.hasActiveChildProcess) {
+      worker.lastProcessActivityAt = now;
+    }
+
+    const idle = evaluateIdleState({
+      now,
+      thresholdMs: STUCK_THRESHOLD_MS,
+      hasActiveChildProcess: snapshot.hasActiveChildProcess,
+      lastHeartbeatAt: worker.lastActivityAt,
+      lastProcessActivityAt: worker.lastProcessActivityAt,
+    });
+
+    if (idle.shouldWarnStuck) {
+      const cooldownExpired =
+        !worker.lastStuckWarningAt || now - worker.lastStuckWarningAt >= STUCK_WARNING_COOLDOWN_MS;
+      if (cooldownExpired) {
+        worker.lastStuckWarningAt = now;
+        this.notifyLLM({
+          type: "stuck",
+          worker: { ...worker },
+          idleSeconds: Math.floor(Math.min(idle.heartbeatIdleMs, idle.processIdleMs) / 1000),
+        });
+      }
+    } else {
+      worker.lastStuckWarningAt = undefined;
+    }
+
+    this.renderWidget();
   }
 
   private unwatchWorker(name: string) {
@@ -239,11 +327,7 @@ export class TeamLeader {
       watcher.close();
       this.fileWatchers.delete(name);
     }
-    const timer = this.stuckTimers.get(name);
-    if (timer) {
-      clearTimeout(timer);
-      this.stuckTimers.delete(name);
-    }
+    this.stopActivityMonitor(name);
   }
 
   async kill(workerName: string): Promise<void> {
@@ -384,7 +468,13 @@ function formatPollEvent(event: PollEvent): string {
     case "failed":
       return `${ICONS.fail} • Worker "${event.worker.name}" failed on ticket #${event.worker.ticketId}: ${event.reason}`;
     case "stuck":
-      return `${ICONS.warn} • Worker "${event.worker.name}" may be stuck on ticket #${event.worker.ticketId} (${event.idleSeconds}s idle)`;
+      return `${ICONS.warn} • Worker "${event.worker.name}" may be stuck on ticket #${event.worker.ticketId} (${event.idleSeconds}s idle) · ${formatRuntimeSummary({
+        hasActiveChildProcess: event.worker.hasActiveChildProcess,
+        activeChildProcessCount: event.worker.activeChildProcessCount,
+        currentCommand: event.worker.currentCommand,
+        currentCommandElapsedSeconds: event.worker.currentCommandElapsedSeconds,
+        lastOutputAt: event.worker.lastOutputAt,
+      })}`;
     case "comment":
       return `${ICONS.comment} • Worker "${event.worker.name}" on ticket #${event.worker.ticketId}: ${event.comment}`;
     case "alive":

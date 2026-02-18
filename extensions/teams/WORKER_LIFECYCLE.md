@@ -14,7 +14,7 @@ When the leader's `teams` tool receives a `delegate` action:
 
 1. **Create ticket** — `tk create <task> -d <task> --tags team -a <workerName>`
 2. **Start ticket** — `tk start <ticketId>` (moves ticket to `in_progress`)
-3. **Create worktree** (if `useWorktree: true`) — `git worktree add .pi-teams/<workerName> -b teams/<workerName>/<ticketId> HEAD`
+3. **Create worktree** (if `useWorktree: true`) — `git worktree add .worktrees/teams/<workerName> -b teams/<workerName>/<ticketId> HEAD`
 4. **Spawn process** — `pi --non-interactive --session-dir <sessionDir> -p <prompt>`
 
 The worker process receives its assignment via environment variables:
@@ -39,14 +39,21 @@ The worker receives a system prompt instructing it to:
 4. Close on completion (`tk add-note <ticketId> "DONE: <summary>"` + `tk close <ticketId>`)
 5. Report blockers (`tk add-note <ticketId> "BLOCKED: <reason>"`)
 
-### 4. Leader Polling
+### 4. Leader Monitoring
 
-The leader polls all active workers at a configurable interval (default 1s, env `PI_TEAMS_POLL_INTERVAL_MS`). Each poll cycle, for each non-terminal worker:
+The leader uses two complementary monitoring paths:
 
-1. Check if **process is alive** (`kill -0 <pid>`)
-2. Read **ticket state** (`tk show <ticketId>`) — parses status and notes
-3. Read **session activity** (last entry timestamp from worker's session file)
-4. Compute **poll events** and **state transitions**
+1. **Ticket file watch** (`fs.watch`) to react quickly to new `tk add-note` progress updates.
+2. **Activity monitor loop** (default 5s, env `PI_TEAMS_ACTIVITY_POLL_MS`) to sample worker process trees and session-file output timestamps.
+
+For each non-terminal worker, the activity loop:
+
+1. Samples process tree activity (`ps`) to detect active child commands (e.g., `cargo`, `rustc`, `npm test`)
+2. Tracks latest session output timestamp from the worker session file
+3. Evaluates stuck state using a dual condition:
+   - no worker heartbeat/output activity for `PI_TEAMS_STUCK_THRESHOLD_MS`
+   - and no active child process activity for the same window
+4. Emits `stuck` warnings with cooldown `PI_TEAMS_STUCK_WARNING_COOLDOWN_MS`
 
 ### 5. State Transitions
 
@@ -65,7 +72,7 @@ spawning → running → done
 | `running`  | Process dead + exit code 0          | `done`    |
 | `running`  | Process dead + non-zero exit        | `failed`  |
 | `running`  | `kill` action from leader           | `killed`  |
-| `running`  | Idle > 5 minutes                    | emits `stuck` event (stays `running`) |
+| `running`  | No heartbeat **and** no child-process activity for configured timeout | emits `stuck` event (stays `running`) |
 
 Terminal states (`done`, `failed`, `killed`) are absorbing — no further transitions occur.
 
@@ -73,14 +80,14 @@ Terminal states (`done`, `failed`, `killed`) are absorbing — no further transi
 
 ### 6. Poll Events
 
-Each poll cycle can emit these events:
+Each monitoring cycle can emit these events:
 
 | Event       | Trigger                                  | Leader Action                        |
 |-------------|------------------------------------------|--------------------------------------|
 | `completed` | Ticket transitions to closed/done        | Notifies LLM, cleans up worker       |
 | `failed`    | Process dies unexpectedly                | Notifies LLM, cleans up worker       |
 | `comment`   | New ticket notes since last seen         | Forwards to LLM (if `showComments`)  |
-| `stuck`     | No activity for >5 min (`STUCK_THRESHOLD_MS`) | Warns LLM                      |
+| `stuck`     | No note/session heartbeat **and** no active child process for > `STUCK_THRESHOLD_MS` | Warns LLM                      |
 | `alive`     | Worker is healthy                        | (informational only)                 |
 
 On `completed` or `failed`, the leader also sends a `sendUserMessage` follow-up to reactivate the agent for orchestration.
@@ -95,7 +102,7 @@ When a worker reaches a terminal state, `cleanupWorker()` runs:
 
 ### 8. Session Shutdown
 
-On `session_shutdown`, the leader stops polling and kills all remaining workers (`killAll`), triggering full cleanup for each.
+On `session_shutdown`, the leader stops activity monitors and kills all remaining workers (`killAll`), triggering full cleanup for each.
 
 ## Ticket Interaction Summary
 
@@ -107,7 +114,7 @@ On `session_shutdown`, the leader stops polling and kills all remaining workers 
 | Worker  | `tk add-note <id> "progress"`         | During execution              |
 | Worker  | `tk add-note <id> "DONE: ..."`        | On completion                 |
 | Worker  | `tk close <id>`                       | On completion                 |
-| Leader  | `tk show <id>`                        | Every poll cycle              |
+| Leader  | `tk show <id>`                        | On ticket change and worker exit reconciliation |
 | Leader  | `tk close <id>`                       | If worker dies without closing |
 
 ## Sequence Diagram
@@ -122,14 +129,14 @@ Leader                          Worker Process              Ticket System
   │                                ├─ (does work)                │
   │                                ├─ tk add-note "progress" ──►│ (note added)
   │                                │                             │
-  ├─ poll: tk show ────────────────────────────────────────────►│ (reads notes)
+  ├─ ticket watch trigger: tk show ───────────────────────────►│ (reads notes)
   ├─ (emits comment event to LLM) │                             │
   │                                │                             │
   │                                ├─ tk add-note "DONE:..." ──►│ (note added)
   │                                ├─ tk close ─────────────────►│ status: closed
   │                                ├─ (process exits)            │
   │                                                              │
-  ├─ poll: tk show ────────────────────────────────────────────►│ (sees closed)
+  ├─ worker exit reconcile: tk show ──────────────────────────►│ (sees closed)
   ├─ (emits completed event)       │                             │
   ├─ cleanup (worktree, session)   │                             │
   │                                                              │

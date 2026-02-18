@@ -46,6 +46,7 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 
 	const sessionFile = path.join(sessionDir, "session.jsonl");
 
+	const now = Date.now();
 	const handle: WorkerHandle = {
 		name: config.workerName,
 		pid: child.pid!,
@@ -57,8 +58,12 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 		worktreePath: config.useWorktree ? config.cwd : null,
 		model: config.model,
 		status: "spawning",
-		spawnedAt: Date.now(),
-		lastActivityAt: Date.now(),
+		spawnedAt: now,
+		lastActivityAt: now,
+		lastProcessActivityAt: now,
+		lastOutputAt: now,
+		hasActiveChildProcess: false,
+		activeChildProcessCount: 0,
 		lastSeenCommentCount: 0,
 	};
 
