@@ -43,6 +43,7 @@ Workflow relies heavily on the use of [tk](https://github.com/wedow/ticket) as t
 | ----------------------- | ------------------------------------------------------------------------------ |
 | `skills.ts`             | `/skills:install`, `/skills:update`, `/skills:list`, `/skills:remove` commands |
 | `file-tools.ts`         | `rg`, `fd`, and `Glob` tools with working directory support                    |
+| `background-bash.ts`     | Extends `bash` with background jobs and exposes `bash_bg_*` management tools   |
 | `hashline-tools.ts`     | Line-anchored file editing — stable hashes prevent stale edits                 |
 | `core-read-ui.ts`       | Enhanced `read` tool with image support and truncation                         |
 | `webfetch.ts`           | Fetch URLs as text, markdown, or HTML                                          |
