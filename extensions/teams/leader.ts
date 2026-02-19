@@ -200,16 +200,16 @@ export class TeamLeader {
     worker.lastNote = lastNote;
     worker.lastActivityAt = Date.now();
 
-    // Cleanup worktree but PRESERVE branches with unmerged commits.
-    // Never auto-merge — the coordinator must explicitly merge after review.
+    // Cleanup: auto-commit dirty files, remove worktree, rename branch to .done
     const preserveBranch = isSuccess && worker.worktreePath !== null;
     const cleanupResult = await cleanupWorker(this.ctx.cwd, worker, preserveBranch).catch(() => undefined);
 
     if (isSuccess) {
       const branch = `teams/${worker.name}/${worker.ticketId}`;
+      const doneBranch = `${branch}.done`;
       const hasBranch = cleanupResult?.branchPreserved;
       const mergeHint = hasBranch
-        ? `\n📌 Branch "${branch}" preserved — merge when ready: git merge ${branch}`
+        ? `\n📌 Branch "${doneBranch}" preserved — merge when ready: git merge ${doneBranch}`
         : "";
       this.notifyLLM({
         type: "completed",
@@ -435,13 +435,14 @@ export class TeamLeader {
     }
 
     const msg = formatPollEvent(event);
+    const triggerTurn = event.type === "stuck" ? false : true;
     this.pi.sendMessage(
       {
         customType: "team-event",
         content: msg,
         display: true,
       },
-      { deliverAs: "followUp", triggerTurn: true },
+      { deliverAs: "followUp", triggerTurn },
     );
   }
 }
