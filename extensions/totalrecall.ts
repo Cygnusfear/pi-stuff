@@ -701,68 +701,75 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 		checkUpdatesAsync();
 	});
 
-	// Cleanup + session transcript capture on shutdown
+	// =========================================================================
+	// Session transcript capture — queue for proper worker synthesis
+	// =========================================================================
+
+	/** Extract messages from session and queue transcript for synthesis */
+	async function captureSessionTranscript(ctx: any): Promise<void> {
+		const entries = ctx?.sessionManager?.getBranch?.() ?? [];
+		if (entries.length < 3) return; // Skip trivial sessions
+
+		// Extract user/assistant messages, skip tool calls and custom entries
+		const messages: { role: string; text: string; timestamp?: number }[] = [];
+		for (const entry of entries) {
+			if (entry.type !== "message") continue;
+			const msg = entry.message;
+			if (!msg || !msg.role || !msg.content) continue;
+			if (msg.role !== "user" && msg.role !== "assistant") continue;
+
+			const text = Array.isArray(msg.content)
+				? msg.content.map((c: any) => c.text || "").filter(Boolean).join("\n")
+				: typeof msg.content === "string" ? msg.content : "";
+
+			if (!text || text.trim().length < 10) continue;
+			messages.push({ role: msg.role, text, timestamp: entry.timestamp });
+		}
+
+		if (messages.length < 2) return; // Need at least a user+assistant exchange
+
+		// Write JSONL transcript to temp file
+		const os = await import("node:os");
+		const fs = await import("node:fs");
+		const tmpDir = os.tmpdir();
+		const transcriptPath = path.join(tmpDir, `totalrecall-${subscriberId}-${Date.now()}.jsonl`);
+		const lines = messages.map(m => JSON.stringify({
+			type: "message",
+			message: { role: m.role, content: m.text },
+			...(m.timestamp ? { timestamp: new Date(m.timestamp).toISOString() } : {}),
+		}));
+		fs.writeFileSync(transcriptPath, lines.join("\n") + "\n");
+
+		// Queue for synthesis via the same pipeline as Claude Code's Stop hook
+		const input = JSON.stringify({
+			session_id: subscriberId,
+			transcript_path: transcriptPath,
+			cwd: ctx.cwd,
+			hook_event_name: "Stop",
+		});
+
+		const child = spawn("sh", ["-c", `echo ${esc(input)} | totalrecall hook queue-synthesis`], {
+			stdio: "ignore",
+			detached: true,
+			env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
+		});
+		child.unref();
+	}
+
+	// Capture on session switch (/new, /resume)
+	pi.on("session_before_switch", async (_event: any, ctx: any) => {
+		try { await captureSessionTranscript(ctx); } catch { /* silent */ }
+	});
+
+	// Capture + cleanup on shutdown (Ctrl+C, Ctrl+D, SIGTERM)
 	pi.on("session_shutdown", async (_event: any, ctx: any) => {
 		if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 
-		// Best-effort subscription cleanup
 		try {
 			runTotalRecallAsync(`subscriptions cleanup --subscriber ${esc(subscriberId)} -o json`);
 		} catch { /* silent */ }
 
-		// Capture session transcript for synthesis queue
-		try {
-			const entries = ctx?.sessionManager?.getBranch?.() ?? [];
-			if (entries.length < 3) return; // Skip trivial sessions
-
-			// Extract user/assistant messages, skip tool calls and custom entries
-			const messages: { role: string; text: string; timestamp?: number }[] = [];
-			for (const entry of entries) {
-				if (entry.type !== "message") continue;
-				const msg = entry.message;
-				if (!msg || !msg.role || !msg.content) continue;
-				if (msg.role !== "user" && msg.role !== "assistant") continue;
-
-				const text = Array.isArray(msg.content)
-					? msg.content.map((c: any) => c.text || "").filter(Boolean).join("\n")
-					: typeof msg.content === "string" ? msg.content : "";
-
-				if (!text || text.trim().length < 10) continue;
-				messages.push({ role: msg.role, text, timestamp: entry.timestamp });
-			}
-
-			if (messages.length < 2) return; // Need at least a user+assistant exchange
-
-			// Write JSONL transcript to temp file
-			const os = await import("node:os");
-			const fs = await import("node:fs");
-			const tmpDir = os.tmpdir();
-			const transcriptPath = path.join(tmpDir, `totalrecall-${subscriberId}.jsonl`);
-			const lines = messages.map(m => JSON.stringify({
-				type: "message",
-				message: { role: m.role, content: m.text },
-				...(m.timestamp ? { timestamp: new Date(m.timestamp).toISOString() } : {}),
-			}));
-			fs.writeFileSync(transcriptPath, lines.join("\n") + "\n");
-
-			// Queue for synthesis via the same pipeline as Claude Code's Stop hook
-			const repo = getRepoName(ctx.cwd);
-			const input = JSON.stringify({
-				session_id: subscriberId,
-				transcript_path: transcriptPath,
-				cwd: ctx.cwd,
-				hook_event_name: "Stop",
-			});
-
-			const child = spawn("sh", ["-c", `echo ${esc(input)} | totalrecall hook queue-synthesis`], {
-				stdio: "ignore",
-				detached: true,
-				env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
-			});
-			child.unref();
-		} catch {
-			// Silent — don't break shutdown
-		}
+		try { await captureSessionTranscript(ctx); } catch { /* silent */ }
 	});
 
 	function checkUpdatesAsync(): void {
