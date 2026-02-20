@@ -8,7 +8,10 @@
  * Inspired by: https://blog.cloudflare.com/code-mode/
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
+import { keyHint } from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
+import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import vm from "node:vm";
 import { spawn } from "node:child_process";
@@ -258,6 +261,29 @@ declare function hashEdit(input: {
  */
 declare function applyPatch(input: {
   patchText: string;
+}): Promise<string>;
+
+/**
+ * Resolve a library name to a Context7 library ID.
+ * Call this before context7Docs to get the right ID,
+ * unless you already have one (like "/vercel/next.js").
+ */
+declare function context7Resolve(input: {
+  /** What you need the library for (ranks results by relevance) */
+  query: string;
+  /** Library or package name to search for */
+  libraryName: string;
+}): Promise<string>;
+
+/**
+ * Fetch up-to-date documentation and code examples for a library from Context7.
+ * Requires a Context7 library ID — use context7Resolve first if you don't have one.
+ */
+declare function context7Docs(input: {
+  /** Context7 library ID (e.g. "/vercel/next.js", "/mongodb/docs") */
+  libraryId: string;
+  /** Specific question or topic to get documentation for */
+  query: string;
 }): Promise<string>;
 `;
 
@@ -1203,6 +1229,60 @@ function createToolBindings(cwd: string) {
 		},
 
 		// =====================================================================
+		// Context7 (up-to-date library docs)
+		// =====================================================================
+
+		context7Resolve: async ({ query, libraryName }: { query: string; libraryName: string }) => {
+			const headers: Record<string, string> = {
+				"Content-Type": "application/json",
+				Accept: "application/json, text/event-stream",
+			};
+			const apiKey = process.env.CONTEXT7_API_KEY;
+			if (apiKey) headers["CONTEXT7_API_KEY"] = apiKey;
+
+			const res = await fetch("https://mcp.context7.com/mcp", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/call",
+					params: { name: "resolve-library-id", arguments: { query, libraryName } },
+				}),
+				signal: AbortSignal.timeout(30_000),
+			});
+			if (!res.ok) throw new Error(`Context7 returned ${res.status}: ${await res.text()}`);
+			const json = (await res.json()) as { result?: { content?: Array<{ text?: string }> }; error?: { message?: string } };
+			if (json.error) throw new Error(`Context7 error: ${json.error.message ?? JSON.stringify(json.error)}`);
+			return json.result?.content?.map((c) => c.text).join("\n") ?? "";
+		},
+
+		context7Docs: async ({ libraryId, query }: { libraryId: string; query: string }) => {
+			const headers: Record<string, string> = {
+				"Content-Type": "application/json",
+				Accept: "application/json, text/event-stream",
+			};
+			const apiKey = process.env.CONTEXT7_API_KEY;
+			if (apiKey) headers["CONTEXT7_API_KEY"] = apiKey;
+
+			const res = await fetch("https://mcp.context7.com/mcp", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/call",
+					params: { name: "query-docs", arguments: { libraryId, query } },
+				}),
+				signal: AbortSignal.timeout(30_000),
+			});
+			if (!res.ok) throw new Error(`Context7 returned ${res.status}: ${await res.text()}`);
+			const json = (await res.json()) as { result?: { content?: Array<{ text?: string }> }; error?: { message?: string } };
+			if (json.error) throw new Error(`Context7 error: ${json.error.message ?? JSON.stringify(json.error)}`);
+			return json.result?.content?.map((c) => c.text).join("\n") ?? "";
+		},
+
+		// =====================================================================
 		// Apply Patch
 		// =====================================================================
 
@@ -1350,9 +1430,14 @@ async function executeCode(
 // Extension
 // =============================================================================
 
+const CODE_PREVIEW_LINES = 8;
+const OUTPUT_PREVIEW_LINES = 15;
+
 interface CodeModeDetails {
 	duration: number;
 	error?: string;
+	lineCount: number;
+	code: string;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -1364,7 +1449,8 @@ export default function (pi: ExtensionAPI) {
 			"Use for multi-step operations, loops, data processing, and chaining tool calls. " +
 			"Available functions: Bash, Read, Write, Edit, Glob, rg, fd, WebFetch, sleep, " +
 			"tk, tkOneshot, recall, memoryContext, memoryCreate, memoryUnfold, memoryStatus, " +
-			"braveSearch, braveCodeSearch, getCurrentTime, hashRead, hashEdit, applyPatch. " +
+			"braveSearch, braveCodeSearch, getCurrentTime, hashRead, hashEdit, applyPatch, " +
+			"context7Resolve, context7Docs. " +
 			"Use console.log() to return results.",
 		parameters: Type.Object({
 			code: Type.String({
@@ -1391,10 +1477,69 @@ export default function (pi: ExtensionAPI) {
 				text = text.slice(0, MAX_OUTPUT_LENGTH) + `\n\n[output truncated. Full output saved to: ${tempFile}]`;
 			}
 
+			const lineCount = text.split("\n").length;
 			return {
 				content: [{ type: "text" as const, text }],
-				details: { duration, error } satisfies CodeModeDetails,
+				details: { duration, error, lineCount, code: params.code } satisfies CodeModeDetails,
 			};
+		},
+
+		renderCall(args: { code: string }, theme: Theme) {
+			const lines = (args.code || "").split("\n");
+			const preview = lines.slice(0, CODE_PREVIEW_LINES);
+			const remaining = lines.length - preview.length;
+
+			let text = theme.fg("toolTitle", theme.bold("execute_code"));
+			text += "\n\n" + preview.map((l: string) => theme.fg("toolOutput", l)).join("\n");
+			if (remaining > 0) {
+				text += theme.fg("muted", `\n... (${remaining} more lines)`);
+			}
+			return new Text(text, 0, 0);
+		},
+
+		renderResult(result: any, { expanded }: ToolRenderResultOptions, theme: Theme) {
+			const details = result.details as CodeModeDetails | undefined;
+			if (!details) return new Text("", 0, 0);
+
+			// Duration
+			const dur = details.duration;
+			const durStr = dur < 1000 ? `${dur}ms` : `${(dur / 1000).toFixed(1)}s`;
+
+			if (details.error) {
+				return new Text(
+					theme.fg("muted", durStr) + " " + theme.fg("error", `Error: ${details.error}`),
+					0, 0,
+				);
+			}
+
+			const output = (result.content ?? [])
+				.filter((c: any) => c.type === "text")
+				.map((c: any) => c.text ?? "")
+				.join("")
+				.trimEnd();
+
+			if (!output) {
+				return new Text(theme.fg("muted", `${durStr} (no output)`), 0, 0);
+			}
+
+			const lines = output.split("\n");
+			const header = theme.fg("muted", `${durStr} · ${details.lineCount} lines`);
+
+			if (expanded) {
+				const styled = lines.map((l: string) => theme.fg("toolOutput", l)).join("\n");
+				return new Text(`${header}\n\n${styled}`, 0, 0);
+			}
+
+			const preview = lines.slice(0, OUTPUT_PREVIEW_LINES);
+			const remaining = lines.length - preview.length;
+			const styled = preview.map((l: string) => theme.fg("toolOutput", l)).join("\n");
+
+			if (remaining > 0) {
+				const hint = theme.fg("muted", `... (${remaining} more lines,`) + ` ${keyHint("expandTools", "to expand")})`;
+				return new Text(`${header}\n\n${styled}\n${hint}`, 0, 0);
+			}
+
+			return new Text(`${header}\n\n${styled}`, 0, 0);
 		},
 	});
 
