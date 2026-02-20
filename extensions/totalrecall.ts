@@ -756,8 +756,12 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 		child.unref();
 	}
 
-	// Capture on session switch (/new, /resume)
+	// Capture on session switch (/new, /resume) and fork
 	pi.on("session_before_switch", async (_event: any, ctx: any) => {
+		try { await captureSessionTranscript(ctx); } catch { /* silent */ }
+	});
+
+	pi.on("session_before_fork", async (_event: any, ctx: any) => {
 		try { await captureSessionTranscript(ctx); } catch { /* silent */ }
 	});
 
