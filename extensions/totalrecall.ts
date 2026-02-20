@@ -147,6 +147,20 @@ function esc(s: string): string {
 	return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
+function parseJsonFromMixedOutput(output: string): any {
+	const clean = output
+		// Strip ANSI escape sequences
+		.replace(/\x1b\[[0-9;]*m/g, "")
+		.trim();
+
+	const firstBrace = clean.indexOf("{");
+	const lastBrace = clean.lastIndexOf("}");
+	if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+		throw new Error("No JSON object found in command output");
+	}
+	return JSON.parse(clean.slice(firstBrace, lastBrace + 1));
+}
+
 function formatAge(timestampMs: number): string {
 	const diff = Date.now() - timestampMs;
 	const hours = Math.floor(diff / 3600000);
@@ -264,12 +278,12 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	});
 
 	// =========================================================================
-	// Auto-capture on shutdown: save last turn context if no compaction happened
+	// Semantic refresh: after turn 3, inject relevant memories
 	// =========================================================================
 
 	let turnCount = 0;
 
-	pi.on("turn_end", async (event: any, ctx: any) => {
+	pi.on("turn_end", async (event: any, _ctx: any) => {
 		try {
 			turnCount++;
 			const msg = event.message;
@@ -287,20 +301,6 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 				asyncFetch(`totalrecall context -o json -t ${esc(query)} -n 10`);
 			}
 			turnContent.push(text.slice(0, 300));
-
-			const repo = getRepoName(ctx.cwd);
-			const firstLine = text.split("\n").find((l: string) => l.trim().length > 10)?.trim() || `Turn ${turnCount}`;
-			const oneLiner = firstLine.slice(0, 120);
-			const summary = text.length > 2000 ? text.slice(0, 2000) + "\n\n[truncated]" : text;
-
-			runTotalRecallAsync([
-				`create -o json`,
-				`-t summary`,
-				`-1 ${esc(oneLiner)}`,
-				`-s ${esc(summary)}`,
-				`--repo ${esc(repo)}`,
-				`--session-id ${esc(subscriberId)}`,
-			].join(" "));
 		} catch {
 			// Silent — don't break the session
 		}
@@ -720,11 +720,13 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 			env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
 		});
 		let out = "";
+		let errOut = "";
 		child.stdout?.on("data", (d: Buffer) => { out += d.toString(); });
+		child.stderr?.on("data", (d: Buffer) => { errOut += d.toString(); });
 		child.on("close", (code) => {
 			if (code !== 0) return;
 			try {
-				const data = JSON.parse(out);
+				const data = parseJsonFromMixedOutput(out || errOut);
 				const updates = data.updates || [];
 				if (updates.length === 0) return;
 
