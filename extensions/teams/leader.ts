@@ -29,6 +29,8 @@ export class TeamLeader {
   private ctx: ExtensionContext | null = null;
   private widgetFactory = createTeamsWidget(() => this.getWorkers());
   private notifiedTerminal = new Set<string>();
+  private notifyQueue: Array<{ msg: string; triggerTurn: boolean }> = [];
+  private notifyDraining = false;
   showComments = true;
 
   constructor(pi: ExtensionAPI) {
@@ -467,14 +469,31 @@ export class TeamLeader {
 
     const msg = formatPollEvent(event);
     const triggerTurn = event.type === "stuck" ? false : true;
-    this.pi.sendMessage(
-      {
-        customType: "team-event",
-        content: msg,
-        display: true,
-      },
-      { deliverAs: "followUp", triggerTurn },
-    );
+    this.notifyQueue.push({ msg, triggerTurn });
+    void this.drainNotifyQueue();
+  }
+
+  private async drainNotifyQueue() {
+    if (this.notifyDraining) return;
+    this.notifyDraining = true;
+    try {
+      while (this.notifyQueue.length > 0) {
+        const { msg, triggerTurn } = this.notifyQueue.shift()!;
+        this.pi.sendMessage(
+          {
+            customType: "team-event",
+            content: msg,
+            display: true,
+          },
+          { deliverAs: "followUp", triggerTurn },
+        );
+        // Yield between sends so the agent can process each message
+        // and set isStreaming before the next one arrives
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    } finally {
+      this.notifyDraining = false;
+    }
   }
 }
 
