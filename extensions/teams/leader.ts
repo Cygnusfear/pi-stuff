@@ -254,6 +254,30 @@ export class TeamLeader {
   }
 
   private refreshSessionActivity(worker: WorkerHandle) {
+    // Resolve the actual session file on first call — pi names files
+    // as `${timestamp}_${sessionId}.jsonl`, not the hardcoded `session.jsonl`
+    // from spawner.ts.
+    if (!fs.existsSync(worker.sessionFile)) {
+      try {
+        const files = fs.readdirSync(worker.sessionDir)
+          .filter(f => f.endsWith(".jsonl"))
+          .map(f => path.join(worker.sessionDir, f));
+        if (files.length === 1) {
+          worker.sessionFile = files[0];
+        } else if (files.length > 1) {
+          // Pick the most recently modified one
+          const sorted = files
+            .map(f => ({ f, mtime: fs.statSync(f).mtimeMs }))
+            .sort((a, b) => b.mtime - a.mtime);
+          worker.sessionFile = sorted[0].f;
+        } else {
+          return; // no session file yet
+        }
+      } catch {
+        return; // session dir may not exist yet
+      }
+    }
+
     try {
       const stat = fs.statSync(worker.sessionFile);
       const mtimeMs = stat.mtimeMs;
@@ -392,12 +416,10 @@ export class TeamLeader {
     const leader = this.ctx.model;
     const fallback = leader ? `${leader.provider}/${leader.id}` : undefined;
 
-    const modelList = available.map(m => `${m.provider}/${m.id}`).join(", ");
-
     this.pi.sendMessage(
       {
         customType: "team-event",
-        content: `⚠ Model "${requested}" not available — falling back to ${fallback ?? "default"}.\nAvailable models: ${modelList}`,
+        content: `⚠ Model "${requested}" not available — falling back to ${fallback ?? "default"}.`,
         display: true,
       },
       { deliverAs: "followUp", triggerTurn: false },
