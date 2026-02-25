@@ -22,6 +22,12 @@ const TeamsParams = Type.Object({
             description: "Model for this worker (see recommendations from `prompts/default.md`)",
           }),
         ),
+        hasTools: Type.Optional(
+          Type.Boolean({
+            description: "Give worker access to teams tool for sub-delegation (default: false)",
+            default: false,
+          }),
+        ),
       }),
     ),
   ),
@@ -33,17 +39,12 @@ const TeamsParams = Type.Object({
 
 type TeamsActionParams = {
   action?: "delegate" | "list" | "kill" | "kill_all";
-  tasks?: Array<{ text: string; assignee?: string; model?: string }>;
+  tasks?: Array<{ text: string; assignee?: string; model?: string; hasTools?: boolean }>;
   name?: string;
   useWorktree?: boolean;
 };
 
-function formatAvailableModels(ctx: ExtensionContext): string {
-  const models = ctx.modelRegistry.getAvailable();
-  if (models.length === 0) return "";
-  const list = models.map((m) => `${m.provider}/${m.id}`).join(", ");
-  return `\nAvailable models: ${list}`;
-}
+
 
 async function runTeamsAction(
   pi: ExtensionAPI,
@@ -116,10 +117,11 @@ async function runTeamsAction(
       await pi.exec("tk", ["start", ticketId], { cwd: ctx.cwd, timeout: 5000 });
 
       try {
-        const handle = await leader.delegate(ticketId, workerName, useWorktree, task.model);
+        const handle = await leader.delegate(ticketId, workerName, useWorktree, task.model, task.hasTools);
         const modelInfo = task.model ? ` [${task.model}]` : "";
+        const toolsInfo = task.hasTools ? " [has-tools]" : "";
         results.push(
-          `Spawned "${workerName}" → ticket #${ticketId} (pid ${handle.pid})${modelInfo}`,
+          `Spawned "${workerName}" → ticket #${ticketId} (pid ${handle.pid})${modelInfo}${toolsInfo}`,
         );
       } catch (err) {
         results.push(`Failed to spawn "${workerName}": ${err}`);
@@ -127,8 +129,7 @@ async function runTeamsAction(
     }
 
     leader.startPolling();
-    const modelList = formatAvailableModels(ctx);
-    return { content: [{ type: "text" as const, text: results.join("\n") + modelList }] };
+    return { content: [{ type: "text" as const, text: results.join("\n") }] };
   }
 
   return { content: [{ type: "text" as const, text: `Unknown action: ${action}` }], isError: true };
@@ -141,8 +142,9 @@ export function registerTeamsTool(pi: ExtensionAPI, leader: TeamLeader) {
     description: `Coordinate a team of worker agents.
 
 Actions:
-- delegate: Create tickets and spawn workers. Provide "tasks" array with { text, assignee?, model? }.
+- delegate: Create tickets and spawn workers. Provide "tasks" array with { text, assignee?, model?, hasTools? }.
   Each worker can use a different model via "provider/model-id" (use examples from ${"`"}prompts/default.md${"`"}).
+  Set hasTools: true to give a worker the teams tool so it can delegate sub-workers.
 - list: Show all active workers and their status.
 - kill: Kill a specific worker by name.
 - kill_all: Kill all workers.

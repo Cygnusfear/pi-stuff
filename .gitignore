@@ -6,3 +6,4 @@ node_modules/
 .pi/skills/
 .pi-teams/
 extensions/brave-search.config.json
+*.code-workspace

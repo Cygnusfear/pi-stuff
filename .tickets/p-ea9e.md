@@ -1,0 +1,21 @@
+---
+id: p-ea9e
+status: open
+deps: []
+links: []
+created: 2026-02-25T09:26:05Z
+type: task
+priority: 2
+assignee: Alexander Mangel
+tags: [research, oracle]
+---
+# Oracle 1: Cosmology (run 6)
+
+Brave web research snapshot (Feb 2026) on active cosmology podcasts in 2025-2026, including recent episodes and hot-topic synthesis.
+
+
+## Notes
+
+**2026-02-25T09:26:29Z**
+
+Findings (Brave + primary feeds, Feb 2026 snapshot):\n\nMethod\n- Used Brave web search for discovery (query: "best cosmology podcasts 2025 2026 recent episodes").\n- Brave returned candidate directories/listings (Feedspot, Goodpods, ListenNotes) and candidate shows.\n- Brave API quota then hit 402 limit, so I validated recency/topics via each podcast's primary RSS feed.\n\nActive cosmology podcasts (>=5) with recent 2025-2026 episodes\n\n1) Astronomy Cast (Fraser Cain + Pamela Gay)\n- Feed: https://astronomycast.libsyn.com/rss\n- Recent episodes:\n  - 2026-02-23: "Ep. 783: Cataclysmic Variable Stars"\n  - 2026-02-16: "Ep. 782: Luminous Fast Blue Optical Transients"\n  - 2026-02-09: "Ep. 781: Awakening Black Holes"\n- Current themes: transients, compact objects, black-hole feeding/AGN behavior, early-Universe/high-z puzzles.\n\n2) The Supermassive Podcast (Royal Astronomical Society)\n- Feed: https://feeds.acast.com/public/shows/67af33c006ec54e1d2363808\n- Recent episodes:\n  - 2026-02-11: "2026: The year in space... And at sea?!"\n  - 2026-01-29: "Q&A: Meteors, Artemis II, and Space Bathtubs"\n  - 2025-12-23: "How to Time Travel"\n- Current themes: 2026 mission outlook, Artemis II, multiverse/time questions, practical astronomy Q&A.\n\n3) StarTalk Radio\n- Feed: https://feeds.simplecast.com/4T39_jAj\n- Recent episodes:\n  - 2026-02-24: "Is the Universe a Math Problem? With Terence Tao"\n  - 2026-02-20: "The Origins of Artificial Intelligence with Geoffrey Hinton"\n  - 2026-02-17: "Cosmic Queries – Your God Is Too Small"\n- Current themes: math foundations of cosmology, dark-matter framing, simulation/large-universe questions, cosmology in pop-science format.\n\n4) Ask a Spaceman! (Paul M. Sutter)\n- Feed: https://rss.libsyn.com/shows/60664/destinations/234448.xml\n- Recent episodes:\n  - 2026-02-17: "AaS! 266: Is the Universe Made of Math?"\n  - 2026-02-03: "AaS! 265: Does Antimatter Fall Up?"\n  - 2026-01-20: "AaS! 264: Just How Weird is the Quantum Eraser?"\n- Current themes: gravity tests with antimatter, quantum measurement problems, mathematical realism in cosmology.\n\n5) Sean Carroll's Mindscape\n- Feed: https://rss.libsyn.com/shows/604590/destinations/5264190.xml\n- Recent episodes:\n  - 2026-02-23: "345 | Adam Elga on Being Rational in a Very Large Universe"\n  - 2026-02-16: "344 | Adam Gurri on Liberal Democracy and How to Fight For It"\n  - 2026-02-09: "343 | Tom Griffiths on The Laws of Thought"\n- Current themes (cosmology-adjacent): reasoning in very large universes, anthropic-style uncertainty, foundations of scientific inference.\n\n6) Why This Universe?\n- Feed: https://rss.buzzsprout.com/1162613.rss\n- Recent episodes:\n  - 2026-01-19: "98 - An Improbable Quantum Ghost Story (Ft. David Kaplan)"\n  - 2025-12-22: "97 - The Schrödinger Equation: The Heart of Quantum Mechanics"\n  - 2025-11-24: "96 - The Making of Particle Fever (Ft. David Kaplan)"\n- Current themes: quantum foundations, black holes, particle physics-to-cosmology bridge, interpretation debates.\n\nCross-podcast hot-topic convergence (2025-2026)\n- Foundations: "Is reality mathematical?" and quantum interpretation questions are everywhere.\n- Black holes/high-energy transients: feeding SMBHs, variable systems, and transient events continue to dominate.\n- Dark sector pressure tests: dark matter explanation scope and broader standard-model stress testing remain central.\n- Observational era framing: JWST-era anomalies, mission planning (Artemis II), and survey-driven cosmology narratives.\n- Public-facing cosmology style: heavy mix of rigorous episodes + listener Q&A formats to explain frontier uncertainty.\n\nBrave-source discovery URLs used\n- https://podcast.feedspot.com/cosmology_podcasts/\n- https://goodpods.com/leaderboard/top-100-shows-by-category/science/astronomy\n- https://www.listennotes.com/latest-podcasts/cosmology/\n

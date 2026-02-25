@@ -32,6 +32,12 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 		PI_TEAMS_WORKER_NAME: config.workerName,
 	};
 
+	if (config.hasTools) {
+		env.PI_TEAMS_HAS_TOOLS = "1";
+	} else {
+		delete env.PI_TEAMS_HAS_TOOLS;
+	}
+
 	const keepSessions = process.env.PI_TEAMS_KEEP_WORKER_SESSIONS === "1";
 	const baseSessionDir = keepSessions
 		? path.join(config.cwd, ".pi", "sessions", "teams-workers")
@@ -70,6 +76,7 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 		sessionFile,
 		worktreePath: config.useWorktree ? config.cwd : null,
 		model: config.model,
+		hasTools: config.hasTools,
 		status: "spawning",
 		spawnedAt: now,
 		lastActivityAt: now,

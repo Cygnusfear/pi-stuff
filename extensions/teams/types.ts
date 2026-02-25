@@ -10,6 +10,7 @@ export interface WorkerHandle {
 	sessionFile: string;
 	worktreePath: string | null;
 	model?: string;
+	hasTools?: boolean;
 	status: WorkerStatus;
 	spawnedAt: number;
 	lastActivityAt: number;
@@ -32,6 +33,7 @@ export interface SpawnConfig {
 	cwd: string;
 	leaderSessionFile: string;
 	model?: string;
+	hasTools?: boolean;
 }
 
 export type PollEvent =

@@ -147,6 +147,36 @@ function esc(s: string): string {
 	return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
+interface TicketResult {
+	id: string;
+	title: string;
+	status: string;
+	tags: string[];
+	type: string;
+	priority: number;
+	score: number;
+	body: string | null;
+	created: string;
+}
+
+/** Search tickets via totalrecall tk recall. Returns [] on failure. */
+function searchTickets(query: string, limit: number): TicketResult[] {
+	try {
+		const raw = runTotalRecall(`tk recall -o json -l ${limit} --mode summary ${esc(query)}`);
+		return JSON.parse(raw);
+	} catch {
+		return [];
+	}
+}
+
+function formatTicketResults(tickets: TicketResult[]): string {
+	if (tickets.length === 0) return "";
+	const lines = tickets.map((t) =>
+		`🎫 [${t.id}] ${t.title} (${t.status}, ${t.tags.join(",")})${t.body ? "\n   " + t.body.split("\n")[0].slice(0, 120) : ""}`
+	);
+	return lines.join("\n");
+}
+
 function parseJsonFromMixedOutput(output: string): any {
 	const clean = output
 		// Strip ANSI escape sequences
@@ -227,55 +257,34 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 	// Phase 1: fetch 10 most recent nodes at load (graft)
 	asyncFetch(`totalrecall recent -o json -l 10`);
 
+	let ticketContextBlock: string | null = null;
+
+	pi.on("session_start", async (_event: any, ctx: any) => {
+		// Fetch active tickets for auto-context
+		try {
+			const raw = runTotalRecall(`tk context --active --budget 4000 -o json`);
+			const data = JSON.parse(raw);
+			if (data.content && data.ticket_count > 0) {
+				ticketContextBlock = `\n\n<active_tickets count="${data.ticket_count}">\n${data.content}\n</active_tickets>`;
+			}
+		} catch { /* silent */ }
+	});
+
 	pi.on("before_agent_start", async (event: any, _ctx: any) => {
 		let extra = "";
 		if (memoriesBlock) {
 			extra += memoriesBlock;
 			memoriesBlock = null;
 		}
+		if (ticketContextBlock) {
+			extra += ticketContextBlock;
+			ticketContextBlock = null;
+		}
 
 		if (!extra) return;
 		return { systemPrompt: event.systemPrompt + extra };
 	});
 
-	// =========================================================================
-	// Auto-capture: save compaction summaries as memory nodes
-	// =========================================================================
-
-	pi.on("session_compact", async (event: any, ctx: any) => {
-		try {
-			const entry = event.compactionEntry;
-			if (!entry) return;
-
-			const summary = typeof entry === "string"
-				? entry
-				: entry.summary || entry.content || JSON.stringify(entry);
-
-			if (!summary || summary.length < 50) return;
-
-			const repo = getRepoName(ctx.cwd);
-
-			// Create a one-liner from first meaningful line
-			const firstLine = summary.split("\n").find((l: string) => l.trim().length > 10)?.trim() || "Session compaction";
-			const oneLiner = firstLine.slice(0, 120);
-
-			// Truncate summary for the CLI arg (keep under shell limits)
-			const truncatedSummary = summary.length > 2000
-				? summary.slice(0, 2000) + "\n\n[truncated]"
-				: summary;
-
-			runTotalRecallAsync([
-				`create -o json`,
-				`-t summary`,
-				`-1 ${esc(oneLiner)}`,
-				`-s ${esc(truncatedSummary)}`,
-				`--repo ${esc(repo)}`,
-				`--session-id ${esc(subscriberId)}`,
-			].join(" "));
-		} catch {
-			// Silently fail — don't break compaction
-		}
-	});
 
 	// =========================================================================
 	// Semantic refresh: after turn 3, inject relevant memories
@@ -333,22 +342,34 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 				const raw = runTotalRecall(args.join(" "));
 				const data: SearchResponse = JSON.parse(raw);
 
+				// Also search tickets
+				const tickets = searchTickets(params.query, Math.min(params.limit || 10, 5));
+				const ticketBlock = formatTicketResults(tickets);
+
 				const summaryLines = data.results.map((r) =>
-					`${typeEmoji(r.node_type)} ${r.one_liner.slice(0, 90)}${r.one_liner.length > 90 ? "…" : ""}`
+					`${typeEmoji(r.node_type)} ${r.one_liner.slice(0, 90)}${r.one_liner.length > 90 ? "\u2026" : ""}`
 				);
+				if (tickets.length > 0) {
+					summaryLines.push(`\ud83c\udfab ${tickets.length} ticket(s)`);
+				}
 
 				const fullText = data.results.map((r) =>
 					`${typeEmoji(r.node_type)} [${(r.ranking_score ?? r.score).toFixed(2)}] ${r.one_liner}\n   ${r.node_id} | ${r.node_type}`
 				).join("\n\n");
 
+				let contentText = JSON.stringify(data, null, 2);
+				if (ticketBlock) {
+					contentText += `\n\n## Matching Tickets\n\n${ticketBlock}`;
+				}
+
 				return {
-					content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+					content: [{ type: "text" as const, text: contentText }],
 					details: {
 						query: params.query,
-						resultCount: data.total,
+						resultCount: data.total + tickets.length,
 						exit: "ok",
 						summaryLines,
-						fullText,
+						fullText: ticketBlock ? fullText + "\n\n" + ticketBlock : fullText,
 					} satisfies RecallDetails,
 				};
 			} catch (error) {
@@ -493,22 +514,34 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 				const data = JSON.parse(raw);
 				const nodes = data.nodes || data.results || [];
 
+				// Also search tickets
+				const tickets = searchTickets(params.task, 5);
+				const ticketBlock = formatTicketResults(tickets);
+
 				const summaryLines = nodes.map((r: any) =>
 					`${typeEmoji(r.node_type)} ${(r.one_liner || r.node_id).slice(0, 90)}`
 				);
+				if (tickets.length > 0) {
+					summaryLines.push(`\ud83c\udfab ${tickets.length} ticket(s)`);
+				}
 
 				const fullText = nodes.map((r: any) =>
 					`${typeEmoji(r.node_type)} [${(r.score || 0).toFixed(2)}] ${r.one_liner}\n   ${r.node_id} | ${r.node_type}`
 				).join("\n\n");
 
+				let contentText = raw;
+				if (ticketBlock) {
+					contentText += `\n\n## Matching Tickets\n\n${ticketBlock}`;
+				}
+
 				return {
-					content: [{ type: "text" as const, text: raw }],
+					content: [{ type: "text" as const, text: contentText }],
 					details: {
 						task: params.task,
-						nodeCount: nodes.length,
+						nodeCount: nodes.length + tickets.length,
 						exit: "ok",
 						summaryLines,
-						fullText,
+						fullText: ticketBlock ? fullText + "\n\n" + ticketBlock : fullText,
 					} satisfies ContextDetails,
 				};
 			} catch (error) {
@@ -701,80 +734,15 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 		checkUpdatesAsync();
 	});
 
-	// =========================================================================
-	// Session transcript capture — queue for proper worker synthesis
-	// =========================================================================
-
-	/** Extract messages from session and queue transcript for synthesis */
-	async function captureSessionTranscript(ctx: any): Promise<void> {
-		const entries = ctx?.sessionManager?.getBranch?.() ?? [];
-		if (entries.length < 3) return; // Skip trivial sessions
-
-		// Extract user/assistant messages, skip tool calls and custom entries
-		const messages: { role: string; text: string; timestamp?: number }[] = [];
-		for (const entry of entries) {
-			if (entry.type !== "message") continue;
-			const msg = entry.message;
-			if (!msg || !msg.role || !msg.content) continue;
-			if (msg.role !== "user" && msg.role !== "assistant") continue;
-
-			const text = Array.isArray(msg.content)
-				? msg.content.map((c: any) => c.text || "").filter(Boolean).join("\n")
-				: typeof msg.content === "string" ? msg.content : "";
-
-			if (!text || text.trim().length < 10) continue;
-			messages.push({ role: msg.role, text, timestamp: entry.timestamp });
-		}
-
-		if (messages.length < 2) return; // Need at least a user+assistant exchange
-
-		// Write JSONL transcript to temp file
-		const os = await import("node:os");
-		const fs = await import("node:fs");
-		const tmpDir = os.tmpdir();
-		const transcriptPath = path.join(tmpDir, `totalrecall-${subscriberId}-${Date.now()}.jsonl`);
-		const lines = messages.map(m => JSON.stringify({
-			type: "message",
-			message: { role: m.role, content: m.text },
-			...(m.timestamp ? { timestamp: new Date(m.timestamp).toISOString() } : {}),
-		}));
-		fs.writeFileSync(transcriptPath, lines.join("\n") + "\n");
-
-		// Queue for synthesis via the same pipeline as Claude Code's Stop hook
-		const input = JSON.stringify({
-			session_id: subscriberId,
-			transcript_path: transcriptPath,
-			cwd: ctx.cwd,
-			hook_event_name: "Stop",
-		});
-
-		const child = spawn("sh", ["-c", `echo ${esc(input)} | totalrecall hook queue-synthesis`], {
-			stdio: "ignore",
-			detached: true,
-			env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || DB_URL },
-		});
-		child.unref();
-	}
-
-	// Capture on session switch (/new, /resume) and fork
-	pi.on("session_before_switch", async (_event: any, ctx: any) => {
-		try { await captureSessionTranscript(ctx); } catch { /* silent */ }
-	});
-
-	pi.on("session_before_fork", async (_event: any, ctx: any) => {
-		try { await captureSessionTranscript(ctx); } catch { /* silent */ }
-	});
-
-	// Capture + cleanup on shutdown (Ctrl+C, Ctrl+D, SIGTERM)
-	pi.on("session_shutdown", async (_event: any, ctx: any) => {
+	// Cleanup on shutdown (Ctrl+C, Ctrl+D, SIGTERM)
+	pi.on("session_shutdown", async (_event: any, _ctx: any) => {
 		if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 
 		try {
 			runTotalRecallAsync(`subscriptions cleanup --subscriber ${esc(subscriberId)} -o json`);
 		} catch { /* silent */ }
-
-		try { await captureSessionTranscript(ctx); } catch { /* silent */ }
 	});
+
 
 	function checkUpdatesAsync(): void {
 		const args = `check-updates -o json --subscriber ${esc(subscriberId)}`;

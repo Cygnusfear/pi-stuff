@@ -22,13 +22,29 @@ The worker process receives its assignment via environment variables:
 - `PI_TEAMS_TICKET_ID=<ticketId>` — the assigned ticket
 - `PI_TEAMS_WORKER_NAME=<name>` — the worker's name
 - `PI_TEAMS_LEADER_SESSION=<path>` — path to leader's session file
+- `PI_TEAMS_HAS_TOOLS=1` — (optional) gives the worker the teams tool for sub-delegation
 
 ### 2. Worker Initialization
 
 On startup (`index.ts`), the extension detects `PI_TEAMS_WORKER=1` and calls `runWorker()` instead of the leader setup. This:
 
 1. Registers a **`team_comment`** tool so the LLM can post notes to its ticket via `tk add-note <ticketId> <message>`
-2. Registers an **`agent_end`** hook that auto-closes the ticket: `tk add-note <ticketId> "DONE: Task completed."` then `tk close <ticketId>`
+2. Registers worker lifecycle hooks (`agent_start`, `turn_start`, `tool_call`, `tool_result`, `turn_end`, `agent_end`) that append **heartbeat entries** to the worker session file
+3. Starts a periodic heartbeat tick (default 5s, env `PI_TEAMS_WORKER_HEARTBEAT_MS`) to keep liveness explicit even during long model waits
+4. Registers an **`agent_end`** hook that auto-closes the ticket: `tk add-note <ticketId> "DONE: Task completed."` then `tk close <ticketId>`
+
+#### Worker-Leaders (hasTools)
+
+If the worker was spawned with `hasTools: true` (env `PI_TEAMS_HAS_TOOLS=1`), it also registers as a leader after the normal worker setup. This means it gets:
+
+- The `teams` tool for delegating sub-workers
+- Its own `TeamLeader` instance for managing sub-workers
+- `session_start`/`session_shutdown` hooks for sub-worker lifecycle
+
+**Constraints for worker-leaders:**
+- Sub-workers always share the parent's working directory (`useWorktree` is forced to `false`). Nested worktrees off a worktree cause git confusion.
+- Cleanup cascades: when a worker-leader's process exits, its `session_shutdown` fires `leader.killAll()`, killing all sub-workers.
+- Worker-leaders do NOT get the `/team` command (they're non-interactive).
 
 ### 3. Worker Execution
 
@@ -44,12 +60,12 @@ The worker receives a system prompt instructing it to:
 The leader uses two complementary monitoring paths:
 
 1. **Ticket file watch** (`fs.watch`) to react quickly to new `tk add-note` progress updates.
-2. **Activity monitor loop** (default 5s, env `PI_TEAMS_ACTIVITY_POLL_MS`) to sample worker process trees and session-file output timestamps.
+2. **Activity monitor loop** (default 5s, env `PI_TEAMS_ACTIVITY_POLL_MS`) to sample worker process trees and session-file heartbeat/output timestamps.
 
 For each non-terminal worker, the activity loop:
 
 1. Samples process tree activity (`ps`) to detect active child commands (e.g., `cargo`, `rustc`, `npm test`)
-2. Tracks latest session output timestamp from the worker session file
+2. Tracks latest worker heartbeat/output timestamp from the worker session file (heartbeat entries + normal session output)
 3. Evaluates stuck state using a dual condition:
    - no worker heartbeat/output activity for `PI_TEAMS_STUCK_THRESHOLD_MS`
    - and no active child process activity for the same window
@@ -87,7 +103,7 @@ Each monitoring cycle can emit these events:
 | `completed` | Ticket transitions to closed/done        | Notifies LLM, cleans up worker       |
 | `failed`    | Process dies unexpectedly                | Notifies LLM, cleans up worker       |
 | `comment`   | New ticket notes since last seen         | Forwards to LLM (if `showComments`)  |
-| `stuck`     | No note/session heartbeat **and** no active child process for > `STUCK_THRESHOLD_MS` | Warns LLM                      |
+| `stuck`     | No note/session heartbeat **and** no active child process for > `STUCK_THRESHOLD_MS` | Warns LLM (display-only, no auto turn trigger) |
 | `alive`     | Worker is healthy                        | (informational only)                 |
 
 On `completed` or `failed`, the leader also sends a `sendUserMessage` follow-up to reactivate the agent for orchestration.

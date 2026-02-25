@@ -76,7 +76,7 @@ describe("e2e: ticket lifecycle", () => {
 describe("e2e: worktree lifecycle", () => {
 	test("full create → work → cleanup cycle", async () => {
 		const repo = initTestRepo();
-		const wtPath = path.join(tmpDir, ".pi-teams", "alice");
+		const wtPath = path.join(tmpDir, ".worktrees", "teams", "alice");
 
 		// Create
 		const result = await createWorktree(repo, "alice", "p-test", wtPath);
@@ -109,5 +109,6 @@ describe("e2e: worker prompt", () => {
 		expect(prompt).toContain("tk show p-abc1");
 		expect(prompt).toContain("tk add-note p-abc1");
 		expect(prompt).toContain("tk close p-abc1");
+		expect(prompt).toContain("GUARD PROTOCOL: AFTER WORK, UPDATE TICKET AND CLOSE");
 	});
 });

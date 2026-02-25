@@ -57,12 +57,21 @@ export class TeamLeader {
     workerName: string,
     useWorktree: boolean,
     model?: string,
+    hasTools?: boolean,
   ): Promise<WorkerHandle> {
     if (!this.ctx) throw new Error("Leader context not set");
 
     if (this.cleanupTimer) {
       clearTimeout(this.cleanupTimer);
       this.cleanupTimer = null;
+    }
+
+    const isNestedWorker = process.env.PI_TEAMS_WORKER === "1";
+
+    // Worker-leaders must not create worktrees — sub-workers share the parent's working directory.
+    // Creating nested worktrees off a worktree causes git confusion and cleanup headaches.
+    if (isNestedWorker && useWorktree) {
+      useWorktree = false;
     }
 
     const repoDir = this.ctx.cwd;
@@ -86,6 +95,7 @@ export class TeamLeader {
       cwd,
       leaderSessionFile: sessionFile,
       model: effectiveModel,
+      hasTools,
     };
 
     const { process: child, handle } = spawnWorker(config);

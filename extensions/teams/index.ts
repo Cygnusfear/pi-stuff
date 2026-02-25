@@ -4,15 +4,29 @@ import { registerTeamsTool, runTeamsAction } from "./tool.js";
 import { runWorker } from "./worker.js";
 
 const IS_WORKER = process.env.PI_TEAMS_WORKER === "1";
+const HAS_TOOLS = process.env.PI_TEAMS_HAS_TOOLS === "1";
 
 export default function (pi: ExtensionAPI) {
 	if (IS_WORKER) {
 		runWorker(pi);
-		return;
+		if (!HAS_TOOLS) return;
+		// Worker with hasTools: also register as a leader so it can delegate sub-workers
 	}
 
 	const leader = new TeamLeader(pi);
 	registerTeamsTool(pi, leader);
+
+	// Only register the /team command for interactive sessions (not worker-leaders)
+	if (IS_WORKER) {
+		pi.on("session_start", (_event, ctx) => {
+			leader.setContext(ctx);
+		});
+		pi.on("session_shutdown", async () => {
+			leader.stopPolling();
+			await leader.killAll();
+		});
+		return;
+	}
 
 	pi.registerCommand("team", {
 		description: "Team control: /team list | /team kill <name> | /team kill_all | /team delegate <worker[@model]>:<task> | /team thinking",

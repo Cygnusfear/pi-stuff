@@ -645,8 +645,24 @@ interface SpawnAsyncResult {
 }
 
 /**
+ * Kill a process and its entire process group.
+ */
+function killTree(pid: number): void {
+	try {
+		process.kill(-pid, "SIGKILL");
+	} catch {
+		try {
+			process.kill(pid, "SIGKILL");
+		} catch {
+			// already dead
+		}
+	}
+}
+
+/**
  * Async spawn that doesn't block the event loop.
- * Drop-in replacement for spawnSync with the same result shape.
+ * Uses AbortSignal.timeout for the deadline and settles immediately
+ * when it fires — never waits for `close` after a kill.
  */
 function spawnAsync({
 	cmd,
@@ -662,24 +678,28 @@ function spawnAsync({
 		let stderrLen = 0;
 		let settled = false;
 
+		const timeoutSignal = AbortSignal.timeout(timeout);
+
 		const child = spawn(cmd, args, {
 			cwd: spawnCwd,
 			env,
+			detached: true,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 
-		const timer = setTimeout(() => {
-			if (!settled) {
-				settled = true;
-				child.kill("SIGKILL");
-				resolve({
-					stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
-					stderr: Buffer.concat(stderrChunks).toString("utf-8"),
-					status: null,
-					error: new Error(`Timed out after ${timeout}ms`),
-				});
-			}
-		}, timeout);
+		const onTimeout = () => {
+			if (settled) return;
+			settled = true;
+			if (child.pid) killTree(child.pid);
+			resolve({
+				stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
+				stderr: Buffer.concat(stderrChunks).toString("utf-8"),
+				status: null,
+				error: new Error(`Timed out after ${timeout}ms`),
+			});
+		};
+
+		timeoutSignal.addEventListener("abort", onTimeout, { once: true });
 
 		child.stdout!.on("data", (chunk: Buffer) => {
 			stdoutLen += chunk.length;
@@ -692,28 +712,26 @@ function spawnAsync({
 		});
 
 		child.on("error", (err) => {
-			if (!settled) {
-				settled = true;
-				clearTimeout(timer);
-				resolve({
-					stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
-					stderr: Buffer.concat(stderrChunks).toString("utf-8"),
-					status: null,
-					error: err,
-				});
-			}
+			if (settled) return;
+			settled = true;
+			timeoutSignal.removeEventListener("abort", onTimeout);
+			resolve({
+				stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
+				stderr: Buffer.concat(stderrChunks).toString("utf-8"),
+				status: null,
+				error: err,
+			});
 		});
 
 		child.on("close", (code) => {
-			if (!settled) {
-				settled = true;
-				clearTimeout(timer);
-				resolve({
-					stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
-					stderr: Buffer.concat(stderrChunks).toString("utf-8"),
-					status: code,
-				});
-			}
+			if (settled) return;
+			settled = true;
+			timeoutSignal.removeEventListener("abort", onTimeout);
+			resolve({
+				stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
+				stderr: Buffer.concat(stderrChunks).toString("utf-8"),
+				status: code,
+			});
 		});
 	});
 }
