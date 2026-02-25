@@ -50,7 +50,7 @@ Workflow relies heavily on the use of [tk](https://github.com/wedow/ticket) as t
 | `auto-continue.ts`      | Auto-continue when the agent hits output limits                                |
 | `git-safety.ts`         | Guard against destructive git operations                                       |
 | `worktree-summaries.ts` | Summarize work done in git worktrees                                           |
-| `default-prompt.ts`     | Auto-loads `prompts/default.md` as extra system prompt every turn               |
+| `default-prompt.ts`     | Additively loads bundled `prompts/default.md` plus repo `.prompts/default.md`   |
 
 ### UI
 
@@ -63,7 +63,8 @@ Workflow relies heavily on the use of [tk](https://github.com/wedow/ticket) as t
 
 ## Prompts
 
-- `prompts/default.md` — Extra system prompt, always injected via `default-prompt.ts`
+- `prompts/default.md` — Bundled global default prompt, always injected via `default-prompt.ts`
+- `.prompts/default.md` (in any repo) — Optional repo-local prompt overlay, injected additively
 - `prompts/codex.md` — General-purpose system prompt template (invoke with `/codex`)
 
 ## Themes
