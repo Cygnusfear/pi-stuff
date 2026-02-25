@@ -69,6 +69,7 @@ async function runTeamsAction(
           activeChildProcessCount: w.activeChildProcessCount,
           currentCommand: w.currentCommand,
           currentCommandElapsedSeconds: w.currentCommandElapsedSeconds,
+          startedAt: w.spawnedAt,
           lastOutputAt: w.lastOutputAt,
         })}`,
       );

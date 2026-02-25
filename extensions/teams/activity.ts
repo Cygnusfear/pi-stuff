@@ -37,6 +37,7 @@ export interface RuntimeSummaryInput {
   activeChildProcessCount?: number;
   currentCommand?: string;
   currentCommandElapsedSeconds?: number;
+  startedAt?: number;
   lastOutputAt?: number;
 }
 
@@ -250,7 +251,8 @@ export function formatRuntimeSummary(input: RuntimeSummaryInput, now = Date.now(
   }
 
   const processPart = `${state}${input.hasActiveChildProcess ? ` (${children} child${children === 1 ? "" : "ren"})` : ""}${commandPart}`;
+  const startedPart = `started ${formatAge(input.startedAt, now)}`;
   const outputPart = `last output ${formatAge(input.lastOutputAt, now)}`;
 
-  return `${processPart} · ${outputPart}`;
+  return `${processPart} · ${startedPart} · ${outputPart}`;
 }

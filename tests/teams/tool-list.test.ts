@@ -45,6 +45,7 @@ describe("teams tool list output", () => {
     expect(text).toContain("activity:");
     expect(text).toContain("busy");
     expect(text).toContain("rustc");
+    expect(text).toContain("started");
     expect(text).toContain("last output");
   });
 });

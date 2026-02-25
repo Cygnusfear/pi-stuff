@@ -51,6 +51,7 @@ export function createTeamsWidget(getWorkers: () => WorkerHandle[]) {
 					activeChildProcessCount: w.activeChildProcessCount,
 					currentCommand: w.currentCommand,
 					currentCommandElapsedSeconds: w.currentCommandElapsedSeconds,
+					startedAt: w.spawnedAt,
 					lastOutputAt: w.lastOutputAt,
 				});
 				lines.push(truncateToWidth(`   ${theme.fg("dim", "↳")} ${theme.fg("muted", activity)}`, width));

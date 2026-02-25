@@ -534,6 +534,7 @@ function formatPollEvent(event: PollEvent): string {
         activeChildProcessCount: event.worker.activeChildProcessCount,
         currentCommand: event.worker.currentCommand,
         currentCommandElapsedSeconds: event.worker.currentCommandElapsedSeconds,
+        startedAt: event.worker.spawnedAt,
         lastOutputAt: event.worker.lastOutputAt,
       })}`;
     case "comment":

@@ -98,6 +98,7 @@ describe("formatRuntimeSummary", () => {
         activeChildProcessCount: 2,
         currentCommand: "rustc",
         currentCommandElapsedSeconds: 620,
+        startedAt: now - 121_000,
         lastOutputAt: now - 12_000,
       },
       now,
@@ -106,6 +107,7 @@ describe("formatRuntimeSummary", () => {
     expect(summary).toContain("busy");
     expect(summary).toContain("rustc");
     expect(summary).toContain("10m");
+    expect(summary).toContain("started 2m ago");
     expect(summary).toContain("last output 12s ago");
   });
 
@@ -115,6 +117,7 @@ describe("formatRuntimeSummary", () => {
       {
         hasActiveChildProcess: false,
         activeChildProcessCount: 0,
+        startedAt: now - 3_000,
         lastOutputAt: now - 30_000,
       },
       now,
@@ -123,6 +126,7 @@ describe("formatRuntimeSummary", () => {
     expect(summary).toContain("thinking");
     expect(summary).not.toContain("idle");
     expect(summary).not.toContain("busy");
+    expect(summary).toContain("started 3s ago");
     expect(summary).toContain("last output 30s ago");
   });
 
