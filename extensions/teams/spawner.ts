@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { SpawnConfig, WorkerHandle } from "./types.js";
@@ -13,6 +14,10 @@ export function buildWorkerPrompt(ticketId: string, workerName: string): string 
 		`3. Comment on the ticket as you work: tk add-note ${ticketId} "your progress"`,
 		`4. When done, close the ticket with a result summary: tk add-note ${ticketId} "DONE: <summary>" && tk close ${ticketId}`,
 		`5. If you are blocked, comment: tk add-note ${ticketId} "BLOCKED: <reason>"`,
+		"",
+		"GUARD PROTOCOL: AFTER WORK, UPDATE TICKET AND CLOSE",
+		`Before you stop, run: tk add-note ${ticketId} "DONE: <summary>" && tk close ${ticketId}`,
+		"Never finish with an open ticket.",
 		"",
 		"Stay focused on the ticket. Do not ask for confirmation — just do the work.",
 	].join("\n");
@@ -33,6 +38,11 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 		: path.join(os.tmpdir(), "pi-teams-sessions");
 	const sessionDir = path.join(baseSessionDir, `team-${config.workerName}-${config.ticketId}-${Date.now()}`);
 
+	// Ensure session dir exists so we can write the stderr log
+	fs.mkdirSync(sessionDir, { recursive: true });
+	const stderrLog = path.join(sessionDir, "stderr.log");
+	const stderrFd = fs.openSync(stderrLog, "w");
+
 	const args = ["--non-interactive", "--session-dir", sessionDir];
 	if (config.model) args.push("--model", config.model);
 	args.push("-p", buildWorkerPrompt(config.ticketId, config.workerName));
@@ -40,9 +50,12 @@ export function spawnWorker(config: SpawnConfig): { process: ChildProcess; handl
 	const child = spawn("pi", args, {
 		cwd: config.cwd,
 		env,
-		stdio: "ignore",
+		stdio: ["ignore", "ignore", stderrFd],
 		detached: false,
 	});
+
+	// Close the fd in the parent — the child inherited it
+	fs.closeSync(stderrFd);
 
 	const sessionFile = path.join(sessionDir, "session.jsonl");
 

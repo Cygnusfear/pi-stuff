@@ -217,10 +217,19 @@ export class TeamLeader {
         result: `${lastNote}${mergeHint}`,
       });
     } else {
+      // Try to read stderr log for diagnostic info
+      let stderr = "";
+      try {
+        const stderrPath = path.join(worker.sessionDir, "stderr.log");
+        const raw = fs.readFileSync(stderrPath, "utf-8").trim();
+        if (raw) stderr = `\nstderr: ${raw.slice(-500)}`;
+      } catch {
+        // no stderr log available
+      }
       this.notifyLLM({
         type: "failed",
         worker: { ...worker },
-        reason: `process exited (code ${exitCode}). Last note: ${lastNote}`,
+        reason: `process exited (code ${exitCode}). Last note: ${lastNote}${stderr}`,
       });
     }
     this.childProcesses.delete(name);
