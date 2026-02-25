@@ -221,9 +221,24 @@ function formatAge(timestampMs: number | undefined, now: number): string {
   return `${hours}h ago`;
 }
 
+/** How recently lastOutputAt must be to count as "thinking" rather than "idle" */
+const THINKING_THRESHOLD_MS = 120_000;
+
 export function formatRuntimeSummary(input: RuntimeSummaryInput, now = Date.now()): string {
-  const state = input.hasActiveChildProcess ? "busy" : "idle";
   const children = input.activeChildProcessCount ?? 0;
+
+  let state: string;
+  if (input.hasActiveChildProcess) {
+    state = "busy";
+  } else if (
+    input.lastOutputAt &&
+    Number.isFinite(input.lastOutputAt) &&
+    now - input.lastOutputAt < THINKING_THRESHOLD_MS
+  ) {
+    state = "thinking";
+  } else {
+    state = "idle";
+  }
 
   let commandPart = "";
   if (input.hasActiveChildProcess && input.currentCommand) {

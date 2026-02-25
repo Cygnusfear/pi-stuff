@@ -108,4 +108,51 @@ describe("formatRuntimeSummary", () => {
     expect(summary).toContain("10m");
     expect(summary).toContain("last output 12s ago");
   });
+
+  test("shows thinking when no child process but recent output", () => {
+    const now = 1_000_000;
+    const summary = formatRuntimeSummary(
+      {
+        hasActiveChildProcess: false,
+        activeChildProcessCount: 0,
+        lastOutputAt: now - 30_000,
+      },
+      now,
+    );
+
+    expect(summary).toContain("thinking");
+    expect(summary).not.toContain("idle");
+    expect(summary).not.toContain("busy");
+    expect(summary).toContain("last output 30s ago");
+  });
+
+  test("shows idle when no child process and stale output", () => {
+    const now = 1_000_000;
+    const summary = formatRuntimeSummary(
+      {
+        hasActiveChildProcess: false,
+        activeChildProcessCount: 0,
+        lastOutputAt: now - 200_000,
+      },
+      now,
+    );
+
+    expect(summary).toContain("idle");
+    expect(summary).not.toContain("thinking");
+    expect(summary).not.toContain("busy");
+  });
+
+  test("shows idle when no lastOutputAt at all", () => {
+    const now = 1_000_000;
+    const summary = formatRuntimeSummary(
+      {
+        hasActiveChildProcess: false,
+        activeChildProcessCount: 0,
+      },
+      now,
+    );
+
+    expect(summary).toContain("idle");
+    expect(summary).not.toContain("thinking");
+  });
 });
