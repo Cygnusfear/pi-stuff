@@ -26,14 +26,24 @@ If the human gives you **only** an ID like `20.01` (or `2001`), treat it as a **
   - Git workflows: `obsidian-plan-wiki/playbook/05-common-tools/05-00-git/SKILL.md`
   - Refactor guide/index: `obsidian-plan-wiki/playbook/30-refactor/30-00-refactor-index/SKILL.md`
   - Architecture guide/index: `obsidian-plan-wiki/playbook/40-architecture/40-00-architecture-index/SKILL.md`
+  - Memory / Totalrecall: `obsidian-plan-wiki/playbook/05-common-tools/05-30-totalrecall-memory/SKILL.md`
 
-## Repo-Specific Rules
+## Skill top-5
+
+1. ticket
+2. ctx
+3. writing-clearly-and-concisely
+4. oracle
+5. delphi
+
+## Rules
 
 - When looking for `CLAUDE.md`, always check for the nearest `AGENTS.md` first.
 - Before editing, read the nearest `AGENTS.md` in the target code folder.
 - Update or add `AGENTS.md` only after explicit `[OK]` from the human.
 - If behavior changes, update the relevant docs in `docs/reference/`.
-- Follow memory workflow from `AGENTS.md` (TotalRecall usage and capture discipline).
+- You have memory, like a hooman, use memory workflow in playbook
+- Work with tickets, read the entry in playbook
 
 ## Red Herring
 
