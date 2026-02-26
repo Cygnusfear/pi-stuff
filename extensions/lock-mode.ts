@@ -10,6 +10,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 const WRITE_TOOLS = new Set([
 	"bash",
+	"bash_bg_start",
 	"write",
 	"edit",
 	"apply_patch",

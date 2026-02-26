@@ -22,7 +22,7 @@ const GUARD_PROTOCOL = "GUARD PROTOCOL: ASK FOR HOOMAN TO CONFIRM THIS ACTION FI
 export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		// ── bash: inject GIT_EDITOR for rebase --continue ──
-		if (event.toolName === "bash") {
+		if (event.toolName === "bash" || event.toolName === "bash_bg_start") {
 			const cmd: string = (event.input as any)?.command ?? "";
 			if (REBASE_CONTINUE_RE.test(cmd) && !HAS_GIT_EDITOR_RE.test(cmd)) {
 				(event.input as any).command = cmd.replace(
@@ -35,7 +35,7 @@ export default function (pi: ExtensionAPI) {
 		// ── detect dangerous .git operations ──
 		let reason: string | null = null;
 
-		if (event.toolName === "bash") {
+		if (event.toolName === "bash" || event.toolName === "bash_bg_start") {
 			reason = isGitUnsafeBash((event.input as any)?.command ?? "");
 		}
 
