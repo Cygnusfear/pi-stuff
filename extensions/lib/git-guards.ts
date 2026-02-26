@@ -44,7 +44,10 @@ export function isGitUnsafeBash(cmd: string): string | null {
 	// No .git reference at all — safe
 	if (!hasLiteralGit && !hasEscapedGit && !hasGlobGit) return null;
 
-	// Any .git reference = blocked. Human decides.
+	// git clone urls end in .git — that's not a threat
+	if (/^\s*git\s+clone\b/.test(normalized)) return null;
+
+	// Any other .git reference = blocked. Human decides.
 	return "command references .git";
 }
 
