@@ -20,6 +20,9 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import TurndownService from "turndown";
+import { isGitUnsafeBash, isGitPath } from "./lib/git-guards.js";
+
+const GIT_GUARD_ERROR = "🛡️ GIT SAFETY BLOCK: This operation targets .git — GUARD PROTOCOL: ASK FOR HOOMAN TO CONFIRM THIS ACTION FIRST WITH [OK]";
 
 // =============================================================================
 // Constants
@@ -748,6 +751,8 @@ function createToolBindings(cwd: string) {
 
 	return {
 		Bash: async ({ command, timeout }: { command: string; timeout?: number }) => {
+			const gitReason = isGitUnsafeBash(command);
+			if (gitReason) throw new Error(`${GIT_GUARD_ERROR} (${gitReason})`);
 			const timeoutMs = timeout ? timeout * 1000 : SUBPROCESS_TIMEOUT_MS;
 			const result = await spawnAsync({
 				cmd: "sh",
@@ -777,6 +782,7 @@ function createToolBindings(cwd: string) {
 
 		Write: async ({ path: filePath, content }: { path: string; content: string }) => {
 			const resolved = resolvePath(filePath, cwd);
+			if (isGitPath(resolved)) throw new Error(`${GIT_GUARD_ERROR} (write to ${filePath})`);
 			const dir = path.dirname(resolved);
 			fs.mkdirSync(dir, { recursive: true });
 			fs.writeFileSync(resolved, content, "utf-8");
@@ -784,6 +790,7 @@ function createToolBindings(cwd: string) {
 
 		Edit: async ({ path: filePath, oldText, newText }: { path: string; oldText: string; newText: string }) => {
 			const resolved = resolvePath(filePath, cwd);
+			if (isGitPath(resolved)) throw new Error(`${GIT_GUARD_ERROR} (edit ${filePath})`);
 			const content = fs.readFileSync(resolved, "utf-8");
 			if (!content.includes(oldText)) {
 				return { matched: false };
@@ -1233,6 +1240,7 @@ function createToolBindings(cwd: string) {
 			edits: HashlineEdit[];
 		}) => {
 			const resolved = resolvePath(filePath, cwd);
+			if (isGitPath(resolved)) throw new Error(`${GIT_GUARD_ERROR} (hashEdit ${filePath})`);
 			const before = fs.readFileSync(resolved, "utf-8");
 			const { updated, appliedEdits } = applyHashEdits(before, edits);
 			const changed = updated !== before;
@@ -1309,6 +1317,14 @@ function createToolBindings(cwd: string) {
 
 			const hunks = parsePatchText(patchText);
 			if (hunks.length === 0) throw new Error("apply_patch: no hunks found");
+
+			// Guard: check all paths before applying anything
+			for (const hunk of hunks) {
+				if (isGitPath(hunk.path)) throw new Error(`${GIT_GUARD_ERROR} (applyPatch targets ${hunk.path})`);
+				if (hunk.type === "update" && hunk.move_path && isGitPath(hunk.move_path)) {
+					throw new Error(`${GIT_GUARD_ERROR} (applyPatch move targets ${hunk.move_path})`);
+				}
+			}
 
 			const results: string[] = [];
 
