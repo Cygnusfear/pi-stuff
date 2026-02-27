@@ -4,6 +4,7 @@ node_modules/
 .env*
 .agents/
 .pi/skills/
+.pi/presence/
 .pi-teams/
 extensions/brave-search.config.json
 *.code-workspace
