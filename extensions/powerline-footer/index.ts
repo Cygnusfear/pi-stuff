@@ -201,24 +201,18 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     return gitBranchPatterns.some(p => p.test(cmd));
   };
 
-  // Invalidate git status after any tool that might change files
+  // Only invalidate on branch-changing commands (rare) — status refreshes via 3-min stale TTL
   pi.on("tool_result", async (event, _ctx) => {
-    if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "apply_patch") {
+    if (event.toolName === "bash" && event.input?.command && mightChangeGitBranch(String(event.input.command))) {
+      invalidateGitBranch();
       invalidateGitStatus();
-    }
-    if (event.toolName === "bash" || event.toolName === "bash_bg_start" || event.toolName === "execute_code") {
-      invalidateGitStatus();
-      if (event.toolName === "bash" && event.input?.command && mightChangeGitBranch(String(event.input.command))) {
-        invalidateGitBranch();
-      }
     }
   });
 
-  // Also catch user escape commands (! prefix)
   pi.on("user_bash", async (event, _ctx) => {
-    invalidateGitStatus();
     if (mightChangeGitBranch(event.command)) {
       invalidateGitBranch();
+      invalidateGitStatus();
     }
   });
 
@@ -334,9 +328,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       parsePositiveInt(process.env[MSTRA_MEMORY_TOKENS_ENV]) ??
       0;
 
-    // Get git status (cached)
+    // Git status is lazy — fetched only when the git segment renders
     const gitBranch = footerDataRef?.getGitBranch() ?? null;
-    const gitStatus = getGitStatus(gitBranch);
 
     // Check if using OAuth subscription
     const usingSubscription = ctx.model
@@ -359,7 +352,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       mstraMemoryTargetTokens,
       usingSubscription,
       sessionStartTime,
-      git: gitStatus,
+      git: { branch: gitBranch, staged: 0, unstaged: 0, untracked: 0 },
+      getGitStatus: () => getGitStatus(gitBranch),
       extensionStatuses: footerDataRef?.getExtensionStatuses() ?? new Map(),
       options: presetDef.segmentOptions ?? {},
       width,

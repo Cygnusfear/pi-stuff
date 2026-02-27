@@ -130,14 +130,20 @@ export interface SegmentContext {
   
   // Computed
   usageStats: UsageStats;
+  contextTokens: number;
   contextPercent: number;
   contextWindow: number;
   autoCompactEnabled: boolean;
+  mstraEnabled: boolean;
+  mstraMessageTargetTokens: number;
+  mstraMemoryTokens: number;
+  mstraMemoryTargetTokens: number;
   usingSubscription: boolean;
   sessionStartTime: number;
   
   // Git
   git: GitStatus;
+  getGitStatus: () => GitStatus;
   
   // Extension statuses
   extensionStatuses: ReadonlyMap<string, string>;

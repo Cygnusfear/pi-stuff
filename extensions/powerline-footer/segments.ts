@@ -31,6 +31,13 @@ function formatTokens(n: number): string {
   return `${Math.round(n / 1000000)}M`;
 }
 
+function formatCompactK(n: number): string {
+  if (n <= 0) return "0";
+  const k = n / 1000;
+  const fixed = k < 10 ? k.toFixed(1) : Math.round(k).toString();
+  return fixed.endsWith(".0") ? fixed.slice(0, -2) : fixed;
+}
+
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -127,7 +134,7 @@ const gitSegment: StatusLineSegment = {
   render(ctx) {
     const icons = getIcons();
     const opts = ctx.options.git ?? {};
-    const { branch, staged, unstaged, untracked } = ctx.git;
+    const { branch, staged, unstaged, untracked } = ctx.getGitStatus();
     const gitStatus =
       staged > 0 || unstaged > 0 || untracked > 0 ? { staged, unstaged, untracked } : null;
 
@@ -267,6 +274,17 @@ const contextPctSegment: StatusLineSegment = {
   id: "context_pct",
   render(ctx) {
     const icons = getIcons();
+
+    if (ctx.mstraEnabled) {
+      const msgMeter = `${formatCompactK(ctx.contextTokens)}/${formatCompactK(ctx.mstraMessageTargetTokens)}k`;
+      const memMeter = `${formatCompactK(ctx.mstraMemoryTokens)}/${formatCompactK(ctx.mstraMemoryTargetTokens)}k`;
+      const mstraText = `msg ${msgMeter}${SEP_DOT}mem ${memMeter}`;
+      return {
+        content: withIcon(icons.context, color(ctx, "context", mstraText)),
+        visible: true,
+      };
+    }
+
     const pct = ctx.contextPercent;
     const window = ctx.contextWindow;
 

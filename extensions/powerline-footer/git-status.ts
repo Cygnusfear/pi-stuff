@@ -11,8 +11,10 @@ interface CachedBranch {
   branch: string | null;
 }
 
-let cachedStatus: CachedGitStatus | null = null;
-let cachedBranch: CachedBranch | null = null;
+const STALE_TTL_MS = 3 * 60 * 1000; // 3 minutes — background refresh floor
+
+let cachedStatus: CachedGitStatus & { timestamp: number } | null = null;
+let cachedBranch: CachedBranch & { timestamp: number } | null = null;
 let pendingFetch: Promise<void> | null = null;
 let pendingBranchFetch: Promise<void> | null = null;
 let invalidationCounter = 0;
@@ -102,21 +104,24 @@ async function fetchGitStatus(): Promise<{ staged: number; unstaged: number; unt
  * Get the current git branch. Only fetches when cache is invalidated.
  */
 export function getCurrentBranch(providerBranch: string | null): string | null {
-  // Return cached if available
-  if (cachedBranch) return cachedBranch.branch;
+  const branchStale = cachedBranch && (Date.now() - cachedBranch.timestamp > STALE_TTL_MS);
+
+  // Return cached if available and not stale
+  if (cachedBranch && !branchStale) return cachedBranch.branch;
 
   // Trigger background fetch if not already pending
   if (!pendingBranchFetch) {
     const fetchId = branchInvalidationCounter;
     pendingBranchFetch = fetchGitBranch().then((result) => {
       if (fetchId === branchInvalidationCounter) {
-        cachedBranch = { branch: result };
+        cachedBranch = { branch: result, timestamp: Date.now() };
       }
       pendingBranchFetch = null;
     });
   }
 
-  return providerBranch;
+  // Return stale data while fetch is in flight
+  return cachedBranch ? cachedBranch.branch : providerBranch;
 }
 
 /**
@@ -127,8 +132,10 @@ export function getCurrentBranch(providerBranch: string | null): string | null {
 export function getGitStatus(providerBranch: string | null): GitStatus {
   const branch = getCurrentBranch(providerBranch);
 
-  // Return cached if available
-  if (cachedStatus) {
+  const statusStale = cachedStatus && (Date.now() - cachedStatus.timestamp > STALE_TTL_MS);
+
+  // Return cached if available and not stale
+  if (cachedStatus && !statusStale) {
     return {
       branch,
       staged: cachedStatus.staged,
@@ -142,14 +149,19 @@ export function getGitStatus(providerBranch: string | null): GitStatus {
     const fetchId = invalidationCounter;
     pendingFetch = fetchGitStatus().then((result) => {
       if (fetchId === invalidationCounter) {
+        const now = Date.now();
         cachedStatus = result
-          ? { staged: result.staged, unstaged: result.unstaged, untracked: result.untracked }
-          : { staged: 0, unstaged: 0, untracked: 0 };
+          ? { staged: result.staged, unstaged: result.unstaged, untracked: result.untracked, timestamp: now }
+          : { staged: 0, unstaged: 0, untracked: 0, timestamp: now };
       }
       pendingFetch = null;
     });
   }
 
+  // Return stale data while fetch is in flight, or zeros on first load
+  if (cachedStatus) {
+    return { branch, staged: cachedStatus.staged, unstaged: cachedStatus.unstaged, untracked: cachedStatus.untracked };
+  }
   return { branch, staged: 0, unstaged: 0, untracked: 0 };
 }
 
