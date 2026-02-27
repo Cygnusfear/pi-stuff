@@ -1,91 +1,86 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 /**
- * /opus, /sonnet, /codex - quick model switching.
+ * /opus, /sonnet, /haiku, /codex - quick model switching.
  *
- * Walks a candidate list newest-first so the commands
- * stay correct as new model versions land in pi-ai.
+ * Dynamically finds the latest model per family from the registry.
+ * No hardcoded candidate lists to maintain.
  */
 
-interface ModelShortcut {
-  command: string;
-  provider: string;
-  candidates: string[];
-  label: string;
+interface ShortcutDef {
+	command: string;
+	provider: string;
+	family: RegExp;
+	label: string;
 }
 
-const SHORTCUTS: ModelShortcut[] = [
-  {
-    command: "opus",
-    provider: "anthropic",
-    candidates: [
-      "claude-opus-4-6",
-      "claude-opus-4-5",
-      "claude-opus-4-1",
-      "claude-opus-4-0",
-    ],
-    label: "Opus",
-  },
-  {
-    command: "sonnet",
-    provider: "anthropic",
-    candidates: [
-      "claude-sonnet-4-5",
-      "claude-sonnet-4-0",
-      "claude-3-7-sonnet-latest",
-    ],
-    label: "Sonnet",
-  },
-  {
-    command: "codex",
-    provider: "openai-codex",
-    candidates: [
-      "gpt-5.3-codex",
-      "gpt-5.2-codex",
-      "gpt-5.1-codex",
-    ],
-    label: "Codex",
-  },
+const SHORTCUTS: ShortcutDef[] = [
+	{ command: "opus", provider: "anthropic", family: /^claude-opus-/, label: "Opus" },
+	{ command: "sonnet", provider: "anthropic", family: /^claude-sonnet-/, label: "Sonnet" },
+	{ command: "haiku", provider: "anthropic", family: /^claude-haiku-/, label: "Haiku" },
+	{ command: "codex", provider: "openai-codex", family: /^gpt-.*-codex$/, label: "Codex" },
 ];
 
-function resolveFirst(
-  registry: { find(provider: string, modelId: string): any },
-  provider: string,
-  candidates: string[],
-) {
-  for (const id of candidates) {
-    const model = registry.find(provider, id);
-    if (model) return model;
-  }
-  return undefined;
+function extractVersion(modelId: string): number | null {
+	// Skip dated (pinned) models like claude-sonnet-4-20250514
+	if (/\d{8}/.test(modelId)) return null;
+	// Skip -latest aliases
+	if (modelId.endsWith("-latest")) return null;
+	// Skip -thinking variants
+	if (modelId.endsWith("-thinking")) return null;
+
+	// claude-opus-4-6 → 4.6, gpt-5.3-codex → 5.3
+	const match = modelId.match(/(\d+)[-.](\d+)/);
+	if (match) return parseFloat(`${match[1]}.${match[2]}`);
+
+	// Single version: claude-haiku-4 → 4
+	const single = modelId.match(/-(\d+)(?:-|$)/);
+	if (single) return parseInt(single[1]);
+
+	return null;
+}
+
+function findLatest(
+	registry: { getAll(): any[] },
+	provider: string,
+	family: RegExp,
+): any | null {
+	let best: any = null;
+	let bestVersion = -1;
+
+	for (const m of registry.getAll()) {
+		if (m.provider !== provider) continue;
+		if (!family.test(m.id)) continue;
+
+		const v = extractVersion(m.id);
+		if (v !== null && v > bestVersion) {
+			bestVersion = v;
+			best = m;
+		}
+	}
+
+	return best;
 }
 
 export default function (pi: ExtensionAPI) {
-  for (const shortcut of SHORTCUTS) {
-    pi.registerCommand(shortcut.command, {
-      description: `Switch to latest ${shortcut.label} (${shortcut.provider})`,
-      handler: async (_args, ctx) => {
-        const model = resolveFirst(
-          ctx.modelRegistry,
-          shortcut.provider,
-          shortcut.candidates,
-        );
+	for (const shortcut of SHORTCUTS) {
+		pi.registerCommand(shortcut.command, {
+			description: `Switch to latest ${shortcut.label}`,
+			handler: async (_args, ctx) => {
+				const model = findLatest(ctx.modelRegistry, shortcut.provider, shortcut.family);
 
-        if (!model) {
-          ctx.ui.notify(
-            `No ${shortcut.label} model found for ${shortcut.provider}`,
-            "error",
-          );
-          return;
-        }
+				if (!model) {
+					ctx.ui.notify(`No ${shortcut.label} model found`, "error");
+					return;
+				}
 
-        const ok = await pi.setModel(model);
-        if (ok) {
-          ctx.ui.notify(`Switched to ${shortcut.provider}/${model.id}`, "info");
-        } else {
-          ctx.ui.notify(`No API key for ${shortcut.provider}/${model.id}`, "warning");
-        }
-      },
-    });
-  }
+				const ok = await pi.setModel(model);
+				if (ok) {
+					ctx.ui.notify(`Switched to ${model.provider}/${model.id}`, "info");
+				} else {
+					ctx.ui.notify(`No API key for ${model.provider}/${model.id}`, "warning");
+				}
+			},
+		});
+	}
 }
