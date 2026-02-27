@@ -204,6 +204,8 @@ function typeEmoji(nodeType: string): string {
 	const map: Record<string, string> = {
 		decision: "⚖️", learning: "💡", entity: "🏷️",
 		event: "📅", task: "✅", summary: "📝",
+		minute_summary: "⏱️", hour_summary: "🕐",
+		day_summary: "📆", week_summary: "🗓️",
 	};
 	return map[nodeType] || "🧠";
 }
@@ -245,16 +247,19 @@ export default function totalrecallExtension(pi: ExtensionAPI) {
 				const nodes = data.nodes || data.results || [];
 				if (nodes.length > 0) {
 					const repo = getRepoName(process.cwd());
-					const memories = nodes.map((n: any) =>
-						`- [${n.node_type}] ${n.one_liner}`
-					).join("\n");
-					memoriesBlock = `\n\n<relevant_memories repo="${repo}">\n${memories}\n</relevant_memories>`;
+					const isRollup = data.mode === "rollup";
+					const memories = nodes.map((n: any) => {
+						const tc = n.temporal_context ? ` (${n.temporal_context})` : "";
+						return `- [${n.node_type}] ${n.one_liner}${tc}`;
+					}).join("\n");
+					const tag = isRollup ? "temporal_timeline" : "relevant_memories";
+					memoriesBlock = `\n\n<${tag} repo="${repo}">\n${memories}\n</${tag}>`;
 				}
 			} catch { /* silent */ }
 		});
 	}
 
-	// Phase 1: fetch 10 most recent nodes at load (graft)
+	// Phase 1: fetch temporal rollup at load (graft) — logarithmic L1→L4 timeline
 	asyncFetch(`totalrecall recent -o json -l 10`);
 
 	let ticketContextBlock: string | null = null;
