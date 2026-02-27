@@ -22,6 +22,54 @@ let config: PowerlineConfig = {
   preset: "default",
 };
 
+const MSTRA_MODE_ENV = "TOTALRECALL_MSTRA_MODE";
+const MSTRA_MEMORY_TOKENS_ENV = "TOTALRECALL_MSTRA_MEMORY_TOKENS";
+const MSTRA_MEMORY_THRESHOLD_ENV = "TOTALRECALL_MSTRA_MEMORY_THRESHOLD_TOKENS";
+const MSTRA_MESSAGE_TARGET_TOKENS = 30_000;
+const MSTRA_MEMORY_TARGET_TOKENS = 40_000;
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  return parsed;
+}
+
+function extractTextBlocks(content: unknown): string[] {
+  if (typeof content === "string") return [content];
+  if (!Array.isArray(content)) return [];
+
+  return content
+    .filter((block): block is { type: string; text?: string } => typeof block === "object" && block !== null)
+    .filter((block) => block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text as string);
+}
+
+function extractMstraMemoryTokensFromSessionEvents(events: any[]): number | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const entry = events[i];
+    if (entry?.type !== "message") continue;
+
+    const role = entry?.message?.role;
+    if (role !== "user" && role !== "custom") continue;
+
+    const textBlocks = extractTextBlocks(entry?.message?.content);
+    for (const text of textBlocks) {
+      const observerMatch = text.match(/<observer[^>]*active_tokens="(\d+)"/);
+      if (observerMatch) {
+        return Number.parseInt(observerMatch[1], 10);
+      }
+
+      const guidanceMatch = text.match(/active_observation_tokens:\s*(\d+)/);
+      if (guidanceMatch) {
+        return Number.parseInt(guidanceMatch[1], 10);
+      }
+    }
+  }
+
+  return undefined;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Status Line Builder
 // ═══════════════════════════════════════════════════════════════════════════
@@ -153,36 +201,24 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     return gitBranchPatterns.some(p => p.test(cmd));
   };
 
-  // Invalidate git status on file changes, trigger re-render on potential branch changes
+  // Invalidate git status after any tool that might change files
   pi.on("tool_result", async (event, _ctx) => {
-    if (event.toolName === "write" || event.toolName === "edit") {
+    if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "apply_patch") {
       invalidateGitStatus();
     }
-    // Check for bash commands that might change git branch
-    if (event.toolName === "bash" && event.input?.command) {
-      const cmd = String(event.input.command);
-      if (mightChangeGitBranch(cmd)) {
-        // Invalidate caches since working tree state changes with branch
-        invalidateGitStatus();
+    if (event.toolName === "bash" || event.toolName === "bash_bg_start" || event.toolName === "execute_code") {
+      invalidateGitStatus();
+      if (event.toolName === "bash" && event.input?.command && mightChangeGitBranch(String(event.input.command))) {
         invalidateGitBranch();
-        // Small delay to let git update, then re-render
-        setTimeout(() => tuiRef?.requestRender(), 100);
       }
     }
   });
 
   // Also catch user escape commands (! prefix)
-  // Note: This fires BEFORE execution, so we use a longer delay and multiple re-renders
-  // to ensure we catch the update after the command completes.
   pi.on("user_bash", async (event, _ctx) => {
+    invalidateGitStatus();
     if (mightChangeGitBranch(event.command)) {
-      // Invalidate immediately so next render fetches fresh data
-      invalidateGitStatus();
       invalidateGitBranch();
-      // Multiple staggered re-renders to catch fast and slow commands
-      setTimeout(() => tuiRef?.requestRender(), 100);
-      setTimeout(() => tuiRef?.requestRender(), 300);
-      setTimeout(() => tuiRef?.requestRender(), 500);
     }
   });
 
@@ -272,13 +308,31 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       }
     }
 
-    // Calculate context percentage (total tokens used in last turn)
-    const contextTokens = lastAssistant
-      ? lastAssistant.usage.input + lastAssistant.usage.output +
-        lastAssistant.usage.cacheRead + lastAssistant.usage.cacheWrite
+    // Prefer live estimated context usage from runtime. Fall back to last assistant usage if unavailable.
+    const usageContext = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
+    const fallbackContextTokens = lastAssistant
+      ? lastAssistant.usage.input +
+        lastAssistant.usage.output +
+        lastAssistant.usage.cacheRead +
+        lastAssistant.usage.cacheWrite
       : 0;
-    const contextWindow = ctx.model?.contextWindow || 0;
-    const contextPercent = contextWindow > 0 ? (contextTokens / contextWindow) * 100 : 0;
+    const contextTokens = typeof usageContext?.tokens === "number" ? usageContext.tokens : fallbackContextTokens;
+    const contextWindow = usageContext?.contextWindow ?? ctx.model?.contextWindow ?? 0;
+    const contextPercent =
+      typeof usageContext?.percent === "number"
+        ? usageContext.percent
+        : contextWindow > 0
+          ? (contextTokens / contextWindow) * 100
+          : 0;
+
+    const mstraEnabled = process.env[MSTRA_MODE_ENV] === "on";
+    const mstraMessageTargetTokens = MSTRA_MESSAGE_TARGET_TOKENS;
+    const mstraMemoryTargetTokens =
+      parsePositiveInt(process.env[MSTRA_MEMORY_THRESHOLD_ENV]) ?? MSTRA_MEMORY_TARGET_TOKENS;
+    const mstraMemoryTokens =
+      extractMstraMemoryTokensFromSessionEvents(sessionEvents) ??
+      parsePositiveInt(process.env[MSTRA_MEMORY_TOKENS_ENV]) ??
+      0;
 
     // Get git status (cached)
     const gitBranch = footerDataRef?.getGitBranch() ?? null;
@@ -295,9 +349,14 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       sessionId: ctx.sessionManager?.getSessionId?.(),
       sessionName: pi.getSessionName(),
       usageStats: { input, output, cacheRead, cacheWrite, cost },
+      contextTokens,
       contextPercent,
       contextWindow,
       autoCompactEnabled: ctx.settingsManager?.getCompactionSettings?.()?.enabled ?? true,
+      mstraEnabled,
+      mstraMessageTargetTokens,
+      mstraMemoryTokens,
+      mstraMemoryTargetTokens,
       usingSubscription,
       sessionStartTime,
       git: gitStatus,
