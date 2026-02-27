@@ -303,7 +303,12 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     }
 
     // Prefer live estimated context usage from runtime. Fall back to last assistant usage if unavailable.
-    const usageContext = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
+    let usageContext;
+    try {
+      usageContext = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
+    } catch {
+      // estimateTokens can crash on malformed messages
+    }
     const fallbackContextTokens = lastAssistant
       ? lastAssistant.usage.input +
         lastAssistant.usage.output +
