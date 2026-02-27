@@ -65,14 +65,16 @@ If the hooman gives you **only** an ID like `20.01` (or `2001`), treat it as a *
 > The sed file has \b (word boundary) which macOS sed doesn't support
 
 - `sed` is garbage on MAC
-- do `ast-grep run --lang typescript --pattern '...' file.ts` through either `execute_code` or `bash`. Way better.
+- **Typescript:** `ast-grep run --lang typescript --pattern '...' file.ts` through either `execute_code` or `bash`. Way better.
+- **Rust:** `rs-hack find/add/remove/rename` through either `execute_code` or `bash` — AST-aware, revertible, blazingly fast.
 
 ## You're smart
 
 > The sed file has \b (word boundary) which macOS sed doesn't support
 
 - `sed` is garbage on MAC
-- do `ast-grep run --lang typescript --pattern '...' file.ts` through either `execute_code` or `bash`. Way better.
+- **Typescript:** `ast-grep run --lang typescript --pattern '...' file.ts` through either `execute_code` or `bash`. Way better.
+- **Rust:** `rs-hack find/add/remove/rename` through either `execute_code` or `bash` — AST-aware, revertible, blazingly fast.
 
 ## Red Herring
 
