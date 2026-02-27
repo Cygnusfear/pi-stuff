@@ -43,6 +43,7 @@ If the human gives you **only** an ID like `20.01` (or `2001`), treat it as a **
 - Update or add `AGENTS.md` only after explicit `[OK]` from the human.
 - If behavior changes, update the relevant docs in `docs/reference/`.
 - You have memory, like a hooman, use memory workflow in playbook
+- **Always check your latest memories** — use `memory_context` or `recall` at the start of work to load relevant background before diving in
 - Work with tickets, read the entry in playbook
 
 ## Red Herring
