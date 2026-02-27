@@ -12,7 +12,12 @@ let lastNudgePercent = 0;
 
 export default function (pi: ExtensionAPI) {
 	pi.on("turn_end", async (_event, ctx) => {
-		const usage = ctx.getContextUsage();
+		let usage;
+		try {
+			usage = ctx.getContextUsage();
+		} catch {
+			return; // estimateTokens can crash on malformed messages
+		}
 		if (!usage?.percent) return;
 
 		const pct = usage.percent / 100;
