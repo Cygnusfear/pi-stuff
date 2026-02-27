@@ -93,13 +93,12 @@ export default function (pi: ExtensionAPI) {
 
 		fs.mkdirSync(presenceDir, { recursive: true });
 
-		// Ensure presence dir is gitignored
-		const piDir = path.dirname(presenceDir);
-		const piGitignore = path.join(piDir, ".gitignore");
+		// Ensure .pi/presence/ is in repo root .gitignore
+		const gitignorePath = path.join(cwd, ".gitignore");
 		try {
-			const existing = fs.existsSync(piGitignore) ? fs.readFileSync(piGitignore, "utf-8") : "";
-			if (!existing.includes("presence/")) {
-				fs.writeFileSync(piGitignore, existing + (existing.endsWith("\n") || !existing ? "" : "\n") + "presence/\n", "utf-8");
+			const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, "utf-8") : "";
+			if (!existing.includes(".pi/presence")) {
+				fs.appendFileSync(gitignorePath, (existing.endsWith("\n") || !existing ? "" : "\n") + ".pi/presence/\n", "utf-8");
 			}
 		} catch {}
 
